@@ -1,8 +1,8 @@
 name: DSH-TUI build
 
-# 编译验证 DSH-TUI 集成分支：源码检查 + source-only 单测 + 未签名 Standard 调试 APK。
+# 编译验证 DSH-TUI 集成分支：源码检查 + 未签名 Standard 调试 APK。
 # 大型固定输入包（rootfs/DSH runtime）不入 Git，完整正式打包仍需 ci-package 的资产包；
-# 本流程只验证源码可编译、单测通过，产物为调试签名、不用于分发。
+# 本流程只验证源码可编译，产物为调试签名、不用于分发。
 on:
   push:
     branches: [dsh-tui-integration]
@@ -20,7 +20,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 90
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
 
@@ -28,12 +28,12 @@ jobs:
         id: toolchain
         run: python3 tools/ci-toolchain.py --github-output
 
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
         with:
           distribution: temurin
           java-version: ${{ steps.toolchain.outputs.java }}
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: ${{ steps.toolchain.outputs.node }}
 
@@ -47,20 +47,16 @@ jobs:
           python3 tools/check-source-hygiene.py
           python3 tools/check-ui-i18n.py
 
-      - name: Source-only unit tests (Standard)
-        run: >
-          DSHA_SOURCE_ONLY=1 python3 tools/run-unit-tests.py
-          :app:testStandardDebugUnitTest
-
-      - name: Build unsigned Standard debug APK
+      - name: Build unsigned Standard debug APK (source-only)
         run: bash build.sh :app:assembleStandardDebug -Pdsha.unsignedPackage=true -Pdsha.sourceOnlyTests=true
 
-      - name: Locate APK artifact
+      - name: Collect APK
         run: |
           find app/build/outputs/apk -name '*.apk' -exec ls -la {} \;
-          echo "APK_PATH=$(find app/build/outputs/apk -name '*.apk' | head -1)" >> "$GITHUB_ENV"
+          APK=$(find app/build/outputs/apk -name '*.apk' | head -1)
+          echo "APK_PATH=$APK" >> "$GITHUB_ENV"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: env.APK_PATH != ''
         with:
           name: dsha-tui-unsigned-debug

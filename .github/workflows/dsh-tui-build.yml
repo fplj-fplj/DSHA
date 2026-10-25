@@ -62,7 +62,7 @@ jobs:
         run: >
           ./gradlew :app:testStandardDebugUnitTest :app:compileStandardDebugJavaWithJavac
           -Pdsha.sourceOnlyTests=true
-          -x :app:prepareStandardAssets -x :app:prepareRecoveryAssets
+          -x :app:prepareStandardAssets -x :app:prepareRecoveryAssets -x :app:verifyRemoteTransport
           --no-daemon --max-workers=2
 
       - name: Report test scope

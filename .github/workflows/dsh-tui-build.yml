@@ -51,7 +51,8 @@ jobs:
         run: |
           platform=$(python3 tools/ci-toolchain.py --field androidPlatform)
           buildtools=$(python3 tools/ci-toolchain.py --field buildTools)
-          sdkmanager "platforms;$platform" "build-tools;$buildtools"
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null 2>&1 || true
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;$platform" "build-tools;$buildtools"
           chmod +x gradlew
 
       # 大型固定输入档（dsh-runtime.bin/offline-rootfs.bin 等）不入 Git，完整 APK 打包

@@ -41,7 +41,13 @@ public final class TuiManager {
   private static final long INSTALL_TIMEOUT_MS = 600_000;
 
   /** TUI 安装状态；unknown 表示尚未检测或检测失败，不等于未安装。 */
-  public enum State { UNKNOWN, NOT_INSTALLED, INSTALLING, READY, FAILED }
+  public enum State {
+    UNKNOWN,
+    NOT_INSTALLED,
+    INSTALLING,
+    READY,
+    FAILED
+  }
 
   public static final class Status {
     public final State state;
@@ -102,10 +108,14 @@ public final class TuiManager {
       String probe =
           "/bin/bash -lc '"
               + "python3 -c \"import json;"
-              + "p=json.load(open('" + PROFILE_DIR + "/package.json'));"
-              + "v=p.get('dependencies',{}).get('" + PACKAGE + "');"
-              + "print(v if isinstance(v,str) else 'ABSENT')\"" +
-              "' 2>&1";
+              + "p=json.load(open('"
+              + PROFILE_DIR
+              + "/package.json'));"
+              + "v=p.get('dependencies',{}).get('"
+              + PACKAGE
+              + "');"
+              + "print(v if isinstance(v,str) else 'ABSENT')\""
+              + "' 2>&1";
       String out = proot.execChecked(probe).trim();
       if ("ABSENT".equals(out) || out.isEmpty()) {
         return publish(new Status(State.NOT_INSTALLED, "", ""));
@@ -142,18 +152,14 @@ public final class TuiManager {
                     + "@"
                     + VERSION
                     + " 2>&1'";
-            var result =
-                proot.runPersonalMaintenance(command, null, false, INSTALL_TIMEOUT_MS);
-            if (result.timedOut)
-              throw new IOException(UiText.text("TUI 安装超时，可稍后在插件页重试"));
+            var result = proot.runPersonalMaintenance(command, null, false, INSTALL_TIMEOUT_MS);
+            if (result.timedOut) throw new IOException(UiText.text("TUI 安装超时，可稍后在插件页重试"));
             Status done = detect(proot);
-            if (done.state != State.READY)
-              throw new IOException(tail(result.output, 400));
+            if (done.state != State.READY) throw new IOException(tail(result.output, 400));
             listener.onTuiStatus(done);
           } catch (IOException | RuntimeException | InterruptedException error) {
             if (error instanceof InterruptedException) Thread.currentThread().interrupt();
-            String safe =
-                com.deepseekharness.app.util.SensitiveData.redact(String.valueOf(error));
+            String safe = com.deepseekharness.app.util.SensitiveData.redact(String.valueOf(error));
             listener.onTuiStatus(publish(new Status(State.FAILED, "", tail(safe, 400))));
           }
         });

@@ -306,7 +306,8 @@ public final class PtyTerminalFragment extends Fragment
    */
   private void launchTui() {
     if (refuseDuringMaintenance()) return;
-    final com.deepseekharness.app.core.TuiManager tui = com.deepseekharness.app.core.TuiManager.shared();
+    final com.deepseekharness.app.core.TuiManager tui =
+        com.deepseekharness.app.core.TuiManager.shared();
     com.deepseekharness.app.core.TuiManager.Status known = tui.lastKnown();
     if (known.state == com.deepseekharness.app.core.TuiManager.State.READY) {
       startTuiSession();
@@ -332,8 +333,7 @@ public final class PtyTerminalFragment extends Fragment
                     } else {
                       Toast.makeText(
                               requireContext(),
-                              com.deepseekharness.app.util.UiText.text(
-                                  "DSH-TUI 尚未安装：到「插件」页安装后再启动"),
+                              com.deepseekharness.app.util.UiText.text("DSH-TUI 尚未安装：到「插件」页安装后再启动"),
                               Toast.LENGTH_LONG)
                           .show();
                     }

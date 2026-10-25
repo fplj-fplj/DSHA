@@ -506,8 +506,10 @@ public class PluginFragment extends Fragment {
     start.setText(com.deepseekharness.app.util.UiText.text("启动"));
     install.setOnClickListener(
         v -> {
-          com.deepseekharness.app.core.TuiManager tui = com.deepseekharness.app.core.TuiManager.shared();
-          if (tui.lastKnown().state == com.deepseekharness.app.core.TuiManager.State.INSTALLING) return;
+          com.deepseekharness.app.core.TuiManager tui =
+              com.deepseekharness.app.core.TuiManager.shared();
+          if (tui.lastKnown().state == com.deepseekharness.app.core.TuiManager.State.INSTALLING)
+            return;
           new com.deepseekharness.app.ui.DshaDialogBuilder(requireContext())
               .setTitle(com.deepseekharness.app.util.UiText.text("安装 DSH-TUI？"))
               .setMessage(
@@ -523,7 +525,8 @@ public class PluginFragment extends Fragment {
                   (d, which) ->
                       tui.install(
                           requireContext(),
-                          com.deepseekharness.app.core.HarnessController.get(requireContext()).proot(),
+                          com.deepseekharness.app.core.HarnessController.get(requireContext())
+                              .proot(),
                           s -> renderTuiStatus(status, install, start)))
               .show();
         });
@@ -546,12 +549,9 @@ public class PluginFragment extends Fragment {
     boolean ready = s.state == com.deepseekharness.app.core.TuiManager.State.READY;
     if (installing) text = com.deepseekharness.app.util.UiText.text("正在安装…");
     else if (ready)
-      text =
-          com.deepseekharness.app.util.UiText.format(
-              "已安装 %s · 在终端页点「TUI」启动", s.version);
+      text = com.deepseekharness.app.util.UiText.format("已安装 %s · 在终端页点「TUI」启动", s.version);
     else if (s.state == com.deepseekharness.app.core.TuiManager.State.FAILED)
-      text =
-          com.deepseekharness.app.util.UiText.format("安装失败：%s", s.message);
+      text = com.deepseekharness.app.util.UiText.format("安装失败：%s", s.message);
     else text = com.deepseekharness.app.util.UiText.text("未安装 · 可选的终端交互前端");
     status.setText(text);
     install.setEnabled(!installing);
@@ -573,11 +573,11 @@ public class PluginFragment extends Fragment {
                             com.deepseekharness.app.core.HarnessController.get(requireContext())
                                 .proot());
                 if (getActivity() != null)
-                    getActivity()
-                        .runOnUiThread(
-                            () -> {
-                              if (getView() != null) renderTuiStatus(status, install, start);
-                            });
+                  getActivity()
+                      .runOnUiThread(
+                          () -> {
+                            if (getView() != null) renderTuiStatus(status, install, start);
+                          });
               });
     }
   }

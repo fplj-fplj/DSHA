@@ -48,6 +48,7 @@ public class MainActivity extends AppCompatActivity {
    * 否则会残留下来，让用户之后手动点启动页时被意外带进 Web。
    */
   private boolean pendingOpenWeb;
+
   /** 插件页「启动 TUI」置位：终端页 onViewCreated 后消费。 */
   private boolean pendingLaunchTui;
 
@@ -404,7 +405,8 @@ public class MainActivity extends AppCompatActivity {
             title.setText(R.string.app_name);
           } else {
             // 终端：默认挂真 PTY 页（vim/htop/tmux 能跑），可在 PTY 页切回简易版
-            boolean recovery = com.deepseekharness.app.core.EnvironmentAccess.needsRecovery(controller);
+            boolean recovery =
+                com.deepseekharness.app.core.EnvironmentAccess.needsRecovery(controller);
             f =
                 recovery
                     ? new EnvironmentRecoveryFragment()
@@ -692,7 +694,10 @@ public class MainActivity extends AppCompatActivity {
    * 旋转，不做强制锁定。
    */
   public void toggleTerminalFullscreen() {
-    View toolbar = findViewById(R.id.app_title) != null ? (View) findViewById(R.id.app_title).getParent() : null;
+    View toolbar =
+        findViewById(R.id.app_title) != null
+            ? (View) findViewById(R.id.app_title).getParent()
+            : null;
     View bottomNav = findViewById(R.id.bottom_nav);
     boolean entering = bottomNav != null && bottomNav.getVisibility() == View.VISIBLE;
     if (toolbar != null) toolbar.setVisibility(entering ? View.GONE : View.VISIBLE);
@@ -702,8 +707,7 @@ public class MainActivity extends AppCompatActivity {
             getWindow(), getWindow().getDecorView());
     if (entering) {
       controller.setSystemBarsBehavior(
-          androidx.core.view.WindowInsetsControllerCompat
-              .BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE);
+          androidx.core.view.WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE);
       controller.hide(androidx.core.view.WindowInsetsCompat.Type.statusBars());
       // 手势导航条保留可滑动唤出，不遮挡终端底部扩展键。
       controller.show(androidx.core.view.WindowInsetsCompat.Type.navigationBars());

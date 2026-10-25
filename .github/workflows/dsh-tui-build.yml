@@ -55,14 +55,37 @@ jobs:
           "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;$platform" "build-tools;$buildtools"
           chmod +x gradlew
 
-      # 大型固定输入档（dsh-runtime.bin/offline-rootfs.bin 等）不入 Git，完整 APK 打包
-      # 需要 ci-package 的资产包；本分支用与上游 ci-fast 相同的 source-only 目标验证
-      # 源码可编译、单测通过（含新增 TuiManagerTest）。
+      - name: Install Go 1.27.3 and Android NDK for connect-core build
+        run: |
+          curl -sSL -o /tmp/go.tgz https://go.dev/dl/go1.27.3.linux-amd64.tar.gz
+          echo "f26081f438319757f8a1b46d7d0b2c5ec7583d4038e485e0aa725cfde7885fff  /tmp/go.tgz" | sha256sum -c -
+          sudo tar -C /usr/local -xzf /tmp/go.tgz
+          echo "/usr/local/go/bin" >> "$GITHUB_PATH"
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null 2>&1 || true
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "ndk;26.3.11579264"
+
+      # dsha-connect.aar 是 Go/gomobile 构建产物，不入 Git；在 CI 里按 lock 的固定
+      # 工具链（go1.27.3 + gomobile pin + NDK 26.3）从源码重建，并与 lock 的 sha256
+      # 核对一致后才进入 gradle 编译 —— 与官方审计构建同一约束。
+      - name: Build dsha-connect.aar from pinned sources
+        run: |
+          export ANDROID_NDK_HOME="$ANDROID_HOME/ndk/26.3.11579264"
+          export GOPATH="$PWD/.gopath" GOCACHE="$PWD/.gocache" GOTOOLCHAIN=local CGO_ENABLED=1
+          go version
+          cd tools/remote/connect-core
+          go install golang.org/x/mobile/cmd/gobind@v0.0.0-20261011034528-197770444867
+          go install golang.org/x/mobile/cmd/gomobile@v0.0.0-20261011034528-197770444867
+          "$GOPATH/bin/gomobile" init
+          "$GOPATH/bin/gomobile" bind -target=android/arm64 -androidapi=30             -javapkg=com.deepseekharness.connect -trimpath             -ldflags='-s -w -buildid= -checklinkname=0 -extldflags=-Wl,-z,max-page-size=16384'             -o ../../..//app/libs/dsha-connect.aar ./mobile
+          cd ../../..
+          python3 tools/remote/verify-android-runtime.py
+
+      # 大型 rootfs/DSH 运行时档仍不入 Git；source-only 单测+编译验证（含 TuiManagerTest）。
       - name: Source-only unit tests and Java compilation (Standard)
         run: >
           ./gradlew :app:testStandardDebugUnitTest :app:compileStandardDebugJavaWithJavac
           -Pdsha.sourceOnlyTests=true
-          -x :app:prepareStandardAssets -x :app:prepareRecoveryAssets -x :app:verifyRemoteTransport
+          -x :app:prepareStandardAssets -x :app:prepareRecoveryAssets
           --no-daemon --max-workers=2
 
       - name: Report test scope

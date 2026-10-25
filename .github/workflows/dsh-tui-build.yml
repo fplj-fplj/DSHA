@@ -1,0 +1,68 @@
+name: DSH-TUI build
+
+# 编译验证 DSH-TUI 集成分支：源码检查 + source-only 单测 + 未签名 Standard 调试 APK。
+# 大型固定输入包（rootfs/DSH runtime）不入 Git，完整正式打包仍需 ci-package 的资产包；
+# 本流程只验证源码可编译、单测通过，产物为调试签名、不用于分发。
+on:
+  push:
+    branches: [dsh-tui-integration]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dsh-tui-build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Verify toolchain against source configuration
+        id: toolchain
+        run: python3 tools/ci-toolchain.py --github-output
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: ${{ steps.toolchain.outputs.java }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ steps.toolchain.outputs.node }}
+
+      - name: Source contracts and hygiene
+        run: |
+          python3 tools/prepare-runtime-tools.py --check
+          python3 tools/generate-builtin-plugins.py --verify
+          python3 tools/generate-credential-paths.py --check
+          python3 tools/format-java-tree.py --check
+          python3 tools/run-host-tests.py --check-manifest
+          python3 tools/check-source-hygiene.py
+          python3 tools/check-ui-i18n.py
+
+      - name: Source-only unit tests (Standard)
+        run: >
+          DSHA_SOURCE_ONLY=1 python3 tools/run-unit-tests.py
+          :app:testStandardDebugUnitTest
+
+      - name: Build unsigned Standard debug APK
+        run: bash build.sh :app:assembleStandardDebug -Pdsha.unsignedPackage=true -Pdsha.sourceOnlyTests=true
+
+      - name: Locate APK artifact
+        run: |
+          find app/build/outputs/apk -name '*.apk' -exec ls -la {} \;
+          echo "APK_PATH=$(find app/build/outputs/apk -name '*.apk' | head -1)" >> "$GITHUB_ENV"
+
+      - uses: actions/upload-artifact@v4
+        if: env.APK_PATH != ''
+        with:
+          name: dsha-tui-unsigned-debug
+          path: ${{ env.APK_PATH }}
+          retention-days: 7

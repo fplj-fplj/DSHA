@@ -58,7 +58,7 @@ jobs:
       - name: Install Go 1.27.3 and Android NDK for connect-core build
         run: |
           curl -sSL -o /tmp/go.tgz https://go.dev/dl/go1.27.3.linux-amd64.tar.gz
-          echo "f26081f438319757f8a1b46d7d0b2c5ec7583d4038e485e0aa725cfde7885fff  /tmp/go.tgz" | sha256sum -c -
+          echo "65efbc80fdc1fa2cd2631cad5b481777a68e8725f34e89f50fc6ac714e379b40  /tmp/go.tgz" | sha256sum -c -
           sudo tar -C /usr/local -xzf /tmp/go.tgz
           echo "/usr/local/go/bin" >> "$GITHUB_PATH"
           yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null 2>&1 || true

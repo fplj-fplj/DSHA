@@ -47,18 +47,39 @@ jobs:
           python3 tools/check-source-hygiene.py
           python3 tools/check-ui-i18n.py
 
-      - name: Build unsigned Standard debug APK (source-only)
-        run: bash build.sh :app:assembleStandardDebug -Pdsha.unsignedPackage=true -Pdsha.sourceOnlyTests=true
-
-      - name: Collect APK
+      - name: Install Android SDK pieces
         run: |
-          find app/build/outputs/apk -name '*.apk' -exec ls -la {} \;
-          APK=$(find app/build/outputs/apk -name '*.apk' | head -1)
-          echo "APK_PATH=$APK" >> "$GITHUB_ENV"
+          platform=$(python3 tools/ci-toolchain.py --field androidPlatform)
+          buildtools=$(python3 tools/ci-toolchain.py --field buildTools)
+          sdkmanager "platforms;$platform" "build-tools;$buildtools"
+          chmod +x gradlew
 
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        if: env.APK_PATH != ''
-        with:
-          name: dsha-tui-unsigned-debug
-          path: ${{ env.APK_PATH }}
-          retention-days: 7
+      # 大型固定输入档（dsh-runtime.bin/offline-rootfs.bin 等）不入 Git，完整 APK 打包
+      # 需要 ci-package 的资产包；本分支用与上游 ci-fast 相同的 source-only 目标验证
+      # 源码可编译、单测通过（含新增 TuiManagerTest）。
+      - name: Source-only unit tests and Java compilation (Standard)
+        run: >
+          ./gradlew :app:testStandardDebugUnitTest :app:compileStandardDebugJavaWithJavac
+          -Pdsha.sourceOnlyTests=true
+          -x :app:prepareStandardAssets -x :app:prepareRecoveryAssets
+          --no-daemon --max-workers=2
+
+      - name: Report test scope
+        if: always()
+        run: |
+          python3 - <<'PY'
+          import xml.etree.ElementTree as ET
+          from pathlib import Path
+          reports = list(Path("app/build/test-results/testStandardDebugUnitTest").glob("TEST-*.xml"))
+          if not reports:
+              print("no JUnit reports; execution not established")
+              raise SystemExit(1)
+          totals = {"tests": 0, "failures": 0, "errors": 0, "skipped": 0}
+          for report in reports:
+              s = ET.parse(report).getroot()
+              for k in totals:
+                  totals[k] += int(s.get(k, 0))
+          print("Standard unit tests:", totals)
+          if totals["failures"] or totals["errors"]:
+              raise SystemExit(1)
+          PY

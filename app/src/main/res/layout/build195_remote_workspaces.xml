@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/remote_workspace_root" android:layout_width="match_parent"
+    android:layout_height="match_parent" android:orientation="vertical" android:background="@color/surface">
+  <ScrollView android:layout_width="match_parent" android:layout_height="match_parent" android:fillViewport="true">
+    <LinearLayout android:id="@+id/remote_workspace_content" android:layout_width="match_parent"
+        android:layout_height="wrap_content" android:orientation="vertical" android:padding="18dp">
+      <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+          android:text="@string/remote_workspaces" android:textSize="26sp" android:textStyle="bold" android:textColor="@color/text" />
+      <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:paddingTop="8dp"
+          android:paddingBottom="18dp" android:text="@string/remote_workspace_intro" android:textSize="14sp" android:textColor="@color/text_secondary" />
+      <LinearLayout android:id="@+id/remote_local_card" android:layout_width="match_parent"
+          android:layout_height="wrap_content" android:orientation="vertical" />
+      <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+          android:text="@string/remote_computers" android:textSize="20sp" android:textStyle="bold" android:textColor="@color/text" android:paddingBottom="12dp" />
+      <TextView android:id="@+id/remote_connection_status" android:layout_width="match_parent"
+          android:layout_height="wrap_content" android:accessibilityLiveRegion="polite" android:textSize="14sp" android:textColor="@color/text_secondary" android:paddingBottom="12dp" />
+      <LinearLayout android:id="@+id/remote_host_list" android:layout_width="match_parent"
+          android:layout_height="wrap_content" android:orientation="vertical" />
+      <LinearLayout android:id="@+id/remote_workspace_actions" android:layout_width="match_parent"
+          android:layout_height="wrap_content" android:orientation="vertical" />
+    </LinearLayout>
+  </ScrollView>
+</LinearLayout>

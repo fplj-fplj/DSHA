@@ -1,0 +1,30 @@
+{
+  "schema": 1,
+  "aarPath": "app/libs/dsha-connect.aar",
+  "aarSha256": "5ba19a2d675c9bbd6f7700901ad1f529a1baf0adaaba43413792a4fd26c88c48",
+  "aarBytes": 9920250,
+  "sources": {
+    "tools/remote/connect-core/connect.go": "49fd80661de8b235767030bdc7b5fae89b1491de2dfcbf219a2f0346ec128e85",
+    "tools/remote/connect-core/discovery/client.go": "bc91c882fea9bb4e1048b06eaeca06672d6e28f77ef042eb623118dd78fc5829",
+    "tools/remote/connect-core/discovery/protocol.go": "9c2c5fbcae0f5d37be73e851a0bf9ae0bf5b564669dbebc97cb54ce060ab536d",
+    "tools/remote/connect-core/lifecycle.go": "ab8cf97de506360f73c0bfaa31748c1f8479fb63a243361368a99502ba52b03a",
+    "tools/remote/connect-core/mobile/mobile.go": "b4ee94e08293763d7731adea638f71313fcf02e8b530c866bfd45363dadc9924",
+    "tools/remote/connect-core/go.mod": "dbd1121b775778d9f59b78995018dd493245714935c6c8059095b1fdedfd989a",
+    "tools/remote/connect-core/go.sum": "3e37260fd4710ec204d87ebf757fc04ad71cedc22b6a3992e27fe07d3c91e5c9",
+    "tools/remote/connect-core/build-android.ps1": "f4f1f4cac0e7fd2c31778fa2c4f12fdfcd396a4045be12b592a160b8ca3c607e"
+  },
+  "toolchain": {
+    "go": "go1.27.3",
+    "goArchiveSha256": "f26081f438319757f8a1b46d7d0b2c5ec7583d4038e485e0aa725cfde7885fff",
+    "gomobile": "v0.0.0-20261011034528-197770444867",
+    "ndk": "26.3.11579264",
+    "androidApi": 30,
+    "abi": "arm64-v8a",
+    "linknameLayoutAudited": true
+  },
+  "elf": {
+    "machine": 183,
+    "aligned_16k": true,
+    "relro_mapped": true
+  }
+}

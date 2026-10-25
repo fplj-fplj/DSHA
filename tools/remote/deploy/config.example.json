@@ -1,0 +1,13 @@
+{
+  "identityFile": "/var/lib/dsha-relay/identity.key",
+  "httpListen": "127.0.0.1:8080",
+  "listen": ["/ip4/127.0.0.1/tcp/4001", "/ip4/127.0.0.1/tcp/4002/ws"],
+  "publicAddresses": ["/dns4/relay.example.invalid/tcp/443/wss"],
+  "maxRecords": 512,
+  "maxLeaseSeconds": 86400,
+  "maxReservations": 128,
+  "maxReservationsPerIP": 8,
+  "maxCircuitsPerPeer": 4,
+  "circuitDurationSeconds": 3600,
+  "circuitBytes": 17179869184
+}

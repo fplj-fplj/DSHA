@@ -1,0 +1,51 @@
+import assert from 'node:assert/strict';
+import { readFile, writeFile, mkdir, mkdtemp, cp, symlink } from 'node:fs/promises';
+import { spawn } from 'node:child_process';
+import { join, resolve } from 'node:path';
+import { once } from 'node:events';
+import { exerciseRemoteFileUI } from './test-frontend.mjs';
+
+const root = resolve(import.meta.dirname, '../../..');
+const fixture = JSON.parse(await readFile(join(root, 'app/build/test-runtimes/current.json'), 'utf8'));
+const runtime = process.env.DSHA_TEST_RUNTIME || fixture.raw;
+const version = JSON.parse(await readFile(join(runtime, 'node_modules/@deepseek-ai/dsh/package.json'), 'utf8')).version;
+assert.ok(['0.2.1-rc.2', '0.2.1-rc.3'].includes(version));
+const output = resolve(process.env.DSHA_PC_EVIDENCE || join(root, 'app/build/remote-pc-tests'));
+await mkdir(output, { recursive: true });
+const temp = await mkdtemp(join(output, `host-${version}-`));
+const home = join(temp, 'home'), data = join(home, '.dsh'), profile = join(data, 'profiles/web'), plugin = join(temp, 'dsha-connect-device');
+await mkdir(profile, { recursive: true });
+await cp(join(root, 'tools/remote/dsh-plugin'), plugin, { recursive: true, filter: path => !path.includes('node_modules') });
+await symlink(join(runtime, 'node_modules'), join(plugin, 'node_modules'), process.platform === 'win32' ? 'junction' : 'dir');
+await mkdir(join(profile, 'node_modules'), { recursive: true });
+await symlink(join(runtime, 'node_modules/@deepseek-ai'), join(profile, 'node_modules/@deepseek-ai'), process.platform === 'win32' ? 'junction' : 'dir');
+await symlink(plugin, join(profile, 'node_modules/dsha-connect-device'), process.platform === 'win32' ? 'junction' : 'dir');
+await writeFile(join(profile, 'package.json'), JSON.stringify({ name: 'dsha-pc-real-host-test', version: '0.1.0', private: true, type: 'module', dsh: { profile: { bundles: ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app', 'dsha-connect-device'], patchReload: 'startup' } } }));
+await writeFile(join(profile, 'cordis.patch.yml'), `- insert:\n    - id: dsha-connect-observer\n      name: '${plugin.replaceAll('\\', '/')}/observer.js'\n`);
+await writeFile(join(plugin, 'observer.js'), `export const inject=['tools','webServer','connection','deepseekLlmApiExtensions'];\nexport function apply(ctx){ctx.effect(()=>ctx.webServer.register({kind:'exact',path:'/api/dsha-connect-test',handler:async(req,res)=>{const rejection=ctx.connection.requestRejection(req);if(rejection!==undefined){res.writeHead(rejection).end();return}const extension=await ctx.deepseekLlmApiExtensions.prepare({signal:new AbortController().signal});res.writeHead(200,{'Content-Type':'application/json'}).end(JSON.stringify({tools:ctx.tools.schemas().map(x=>x.name),packages:extension.fields.dsh_plugin_packages?.packages}));}}));}\n`);
+await writeFile(join(data, 'settings.yaml'), '{}\n');
+let log = '', exited = false;
+const env = { ...process.env, HOME: home, USERPROFILE: home, DSH_HOME: data, DSH_TELEMETRY_DISABLED: '1', DSH_CONFIRM: '1', BROWSER: 'true', DEEPSEEK_API_KEY: '', OPENAI_API_KEY: '', NARB_DISABLE_NATIVE_CACHE: '1' };
+const host = spawn(process.execPath, [join(runtime, 'node_modules/@deepseek-ai/dsh/lib/bin.js'), 'web', '--no-open', '--host', '127.0.0.1', '--port', '0'], { cwd: home, env, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
+host.stdout.on('data', b => log += b); host.stderr.on('data', b => log += b); host.on('exit', () => exited = true);
+try {
+  let auth; const until = Date.now() + 180000;
+  while (!exited && !auth && Date.now() < until) { auth = log.match(/http:\/\/127\.0\.0\.1:\d+\/[^\s\x1b]*/)?.[0]; if (!auth) await new Promise(r => setTimeout(r, 100)); }
+  assert.ok(auth, `real DSH startup failed: ${log.replaceAll(/token=[^\s&]+/g, 'token=[redacted]')}`);
+  const response = await fetch(auth, { redirect: 'manual' }); assert.equal(response.status, 303);
+  const cookie = response.headers.get('set-cookie')?.split(';')[0]; assert.ok(cookie);
+  const observer = await fetch(new URL('/api/dsha-connect-test', auth), { headers: { Cookie: cookie } });
+  assert.equal(observer.status, 200);
+  const info = await observer.json();
+  for (const name of ['dsha_remote_status', 'dsha_remote_task', 'dsha_remote_screen']) assert.ok(info.tools.includes(name), name);
+  assert.ok(JSON.stringify(info.packages).includes('dsha-connect-device'), 'official request extension must enumerate the real plugin package');
+  if (process.env.DSHA_PC_FRONTEND === '1') await exerciseRemoteFileUI({ root, auth, home, output, version });
+  const go = process.env.DSHA_GO || 'go';
+  const test = spawn(go, ['test', '-count=1', '-v', './...'], { cwd: import.meta.dirname, env: { ...process.env, DSHA_REAL_DSH_URL: auth }, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
+  let testLog = ''; test.stdout.on('data', b => testLog += b); test.stderr.on('data', b => testLog += b);
+  const [code] = await once(test, 'exit');
+  await writeFile(join(output, `go-real-${version}.log`), testLog);
+  assert.equal(code, 0, testLog);
+  await writeFile(join(output, `real-host-${version}.json`), JSON.stringify({ status: 'PASS', dshVersion: version, tools: info.tools.filter(x => x.startsWith('dsha_remote_')), officialPluginEnumeration: true, realHTTPRPC: true, realLibp2pNoisePairing: true, lostPairAckReconnect: true, phoneDeviceActions: 'NOT_TESTED', externalModelInference: 'NOT_CLAIMED' }, null, 2));
+  process.stdout.write(`PASS actual pinned DSH ${version}: real plugin roster, package enumeration, session HTTP RPC, authenticated P2P proxy and key rotation.\n`);
+} finally { host.kill(); if (!exited) await once(host, 'exit'); }

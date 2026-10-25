@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+  <string name="remote_workspaces">Workspaces</string>
+  <string name="remote_assistant">Floating assistant</string>
+  <string name="remote_assistant_detail">Choose a real DSH session on this phone or a connected computer for floating chat and pause controls.</string>
+  <string name="remote_workspace_intro">Your phone and computer keep separate conversations, files, and settings. A computer workspace needs no Ubuntu environment on this phone.</string>
+  <string name="remote_local_phone">This phone</string>
+  <string name="remote_local_detail">Run DSH on this phone with local conversations and files.</string>
+  <string name="remote_open_local">Open phone workspace</string>
+  <string name="remote_computers">Computer workspaces</string>
+  <string name="remote_pair_computer">Pair computer</string>
+  <string name="remote_no_computers">No paired computers yet. Pair once to remember your computer. You can revoke trust any time.</string>
+  <string name="remote_pair_instructions">Enable DSHA Connect in DSH on your computer and display its pairing QR code. Scan it, or paste the complete pairing code shown there. The code expires shortly; keep it private. If an already paired computer changes network or addresses, scan its Refresh connection addresses QR code.</string>
+  <string name="remote_code_hint">Paste complete pairing code (dsha-connect://pair?ticket=…)</string>
+  <string name="remote_scan_qr">Scan computer QR code</string>
+  <string name="remote_review_pair">Review and pair</string>
+  <string name="remote_checking_trust">Checking computer trust on this phone…</string>
+  <string name="remote_refresh_unknown">This computer is not trusted yet. Display its first pairing QR code.</string>
+  <string name="remote_refresh_required">This computer is already paired. Display its Refresh connection addresses QR code. Existing trust is kept.</string>
+  <string name="remote_refresh_title">Refresh computer addresses</string>
+  <string name="remote_refresh_body">Computer: %1$s\nIdentity: %2$s\nNew connection addresses: %3$d\n\nUpdate addresses only after verifying the pinned computer identity, existing connection key, and current process. Keep existing grants. Verification failure leaves the old record unchanged.</string>
+  <string name="remote_refresh_connect">Verify addresses and connect</string>
+  <string name="remote_refresh_started">Verifying computer and new addresses. Connection records update only after success.</string>
+  <string name="remote_manual_instead">Use a pairing code instead</string>
+  <string name="remote_scan_instructions">Scan the pairing QR shown in DSH on your computer. Camera frames are decoded on this phone.</string>
+  <string name="remote_camera_unavailable">Camera unavailable. Go back and paste a pairing code.</string>
+  <string name="remote_code_invalid">Invalid or expired pairing code. Refresh it on your computer and try again.</string>
+  <string name="remote_grant_title">Trust this computer?</string>
+  <string name="remote_grant_body">Computer: %1$s\nIdentity: %2$s\n\nRemember this computer, connect to its DSH conversations and files, and allow phone assistant capabilities you have authorized. Android system permissions still need separate approval. You can revoke trust in Workspaces.\n\nContinue only if you generated this code on your own computer.</string>
+  <string name="remote_grant">Trust and pair</string>
+  <string name="remote_cancel">Cancel</string>
+  <string name="remote_back">Back to workspaces</string>
+  <string name="remote_connect">Connect computer</string>
+  <string name="remote_open_pc">Open computer conversations</string>
+  <string name="remote_disconnect">Disconnect remote session</string>
+  <string name="remote_revoke">Revoke this computer</string>
+  <string name="remote_revocation_title">Revoke computer trust?</string>
+  <string name="remote_revocation_body">Revoking %1$s ends its current connection and grants. Pair again to reconnect. Computer files and conversations are kept.</string>
+  <string name="remote_error">Operation did not complete. Please retry. Business operations are never automatically repeated.</string>
+  <string name="remote_trust_unavailable">Computer trust records could not be read. Existing records have been kept.</string>
+  <string name="remote_state_stopped">Remote connection stopped</string>
+  <string name="remote_state_connecting">Connecting and verifying computer identity…</string>
+  <string name="remote_state_reconnecting">Connection interrupted. Reconnecting and verifying within a limited window. Business operations will not be resent.</string>
+  <string name="remote_state_connected">Computer connection authenticated</string>
+  <string name="remote_state_disconnected">Connection interrupted. Reconnect when ready; business operations will not be resent.</string>
+  <string name="remote_state_failed">Connection incomplete. Check computer DSH and network, then retry.</string>
+  <string name="remote_pair_started">Verifying pairing. Computer trust is saved only after success.</string>
+  <string name="remote_path_direct">Path: direct</string>
+  <string name="remote_path_relay">Path: encrypted relay</string>
+  <string name="remote_path_unknown">Path: awaiting measurement</string>
+  <string name="remote_latency">Round-trip latency: %1$d ms</string>
+  <string name="remote_latency_unknown">Round-trip latency: not measured yet</string>
+  <string name="remote_endpoint_count">%1$d connection addresses remembered</string>
+</resources>

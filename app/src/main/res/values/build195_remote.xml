@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+  <string name="remote_workspaces">工作区</string>
+  <string name="remote_assistant">悬浮助手</string>
+  <string name="remote_assistant_detail">选择本机或已连接电脑的真实 DSH 会话，悬浮聊天与暂停控制。</string>
+  <string name="remote_workspace_intro">手机与电脑各自保留对话、文件和设置。选择电脑不需要安装手机 Ubuntu 环境。</string>
+  <string name="remote_local_phone">这部手机</string>
+  <string name="remote_local_detail">在手机本地运行 DSH，使用本机对话与文件。</string>
+  <string name="remote_open_local">进入手机工作区</string>
+  <string name="remote_computers">电脑工作区</string>
+  <string name="remote_pair_computer">配对电脑</string>
+  <string name="remote_no_computers">尚未配对电脑。首次配对后会记住这台电脑，可随时撤销。</string>
+  <string name="remote_pair_instructions">在电脑 DSH 中启用 DSHA Connect，显示配对二维码。扫描二维码，或粘贴电脑显示的完整配对码。配对码短时有效，请勿转发。已配对电脑换网或地址变化时，扫描电脑的“更新连接地址”二维码。</string>
+  <string name="remote_code_hint">粘贴完整配对码（dsha-connect://pair?ticket=…）</string>
+  <string name="remote_scan_qr">扫描电脑二维码</string>
+  <string name="remote_review_pair">核对并配对</string>
+  <string name="remote_checking_trust">正在核对本机电脑信任记录…</string>
+  <string name="remote_refresh_unknown">尚未信任此电脑。请在电脑显示首次配对二维码。</string>
+  <string name="remote_refresh_required">此电脑已配对。请在电脑显示“更新连接地址”二维码，已有信任保持不变。</string>
+  <string name="remote_refresh_title">更新电脑连接地址</string>
+  <string name="remote_refresh_body">电脑：%1$s\n身份：%2$s\n新连接地址：%3$d 个\n\n仅在电脑身份、已有连接密钥与本次进程核验通过后更新地址。已有授权保留，核验失败不改旧记录。</string>
+  <string name="remote_refresh_connect">核验地址并连接</string>
+  <string name="remote_refresh_started">正在验证电脑与新地址；成功后才会更新连接记录。</string>
+  <string name="remote_manual_instead">改用手动配对码</string>
+  <string name="remote_scan_instructions">对准电脑 DSH 显示的配对二维码。相机画面仅在本机用于识别。</string>
+  <string name="remote_camera_unavailable">无法使用相机。可返回并粘贴配对码。</string>
+  <string name="remote_code_invalid">配对码无效或已过期，请在电脑刷新后重试。</string>
+  <string name="remote_grant_title">信任这台电脑？</string>
+  <string name="remote_grant_body">电脑：%1$s\n身份：%2$s\n\n配对后记住此电脑，允许连接它的 DSH 对话与文件，并使用已授权的手机助手能力。手机的系统权限仍需单独授予。可在工作区随时撤销。\n\n仅在你自己的电脑上生成配对码后继续。</string>
+  <string name="remote_grant">信任并配对</string>
+  <string name="remote_cancel">取消</string>
+  <string name="remote_back">返回工作区</string>
+  <string name="remote_connect">连接电脑</string>
+  <string name="remote_open_pc">打开电脑对话</string>
+  <string name="remote_disconnect">断开远程连接</string>
+  <string name="remote_revoke">撤销此电脑</string>
+  <string name="remote_revocation_title">撤销电脑信任？</string>
+  <string name="remote_revocation_body">撤销 %1$s 后，当前连接与许可失效。再次连接需要重新配对。电脑文件和对话保留。</string>
+  <string name="remote_error">操作未完成，请重试。没有自动重复业务操作。</string>
+  <string name="remote_trust_unavailable">无法读取电脑信任记录；已有记录未清除。</string>
+  <string name="remote_state_stopped">远程连接已停止</string>
+  <string name="remote_state_connecting">正在连接与验证电脑身份…</string>
+  <string name="remote_state_reconnecting">连接中断，正在限时重新验证连接。原业务操作不会重发。</string>
+  <string name="remote_state_connected">电脑已鉴权连接</string>
+  <string name="remote_state_disconnected">连接已中断，可重新连接；业务操作不会自动重发。</string>
+  <string name="remote_state_failed">连接未完成，请检查电脑 DSH 与网络后重试。</string>
+  <string name="remote_pair_started">正在验证配对；成功后才会保存电脑信任。</string>
+  <string name="remote_path_direct">路径：直连</string>
+  <string name="remote_path_relay">路径：加密中继</string>
+  <string name="remote_path_unknown">路径：等待实测</string>
+  <string name="remote_latency">往返延迟：%1$d ms</string>
+  <string name="remote_latency_unknown">往返延迟：尚未测得</string>
+  <string name="remote_endpoint_count">已记住 %1$d 个连接地址</string>
+</resources>

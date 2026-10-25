@@ -1,6 +1,10 @@
 package com.deepseekharness.app;
 
+import android.content.Context;
 import android.util.Log;
+
+import com.deepseekharness.app.util.Constants;
+import com.deepseekharness.app.util.SensitiveData;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -8,297 +12,935 @@ import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
+import java.nio.charset.StandardCharsets;
+import java.security.SecureRandom;
+import java.util.Base64;
+import java.util.Locale;
+import java.util.concurrent.ConcurrentHashMap;
+import com.deepseekharness.app.util.HttpProtocol;
+import com.deepseekharness.app.util.SocketDispatch;
+import com.deepseekharness.app.util.LanNetworkState;
 
 /**
- * 局域网转发桥（Shizuku 式思路的轻量版）：
- * 在 App 侧监听 0.0.0.0:{@link #LAN_PORT}，把 HTTP 请求转发到本机 127.0.0.1:{@link #BACKEND_PORT}，
- * 并把 Host 头重写为 127.0.0.1:{@link #BACKEND_PORT} —— 后端 WebUI 的 Host 校验看到的是 loopback，
- * 天然放行，彻底绕开 CLI 的 0.0.0.0 拦截与 trusted-host 限制。支持 keep-alive、chunked、
- * WebSocket 升级（升级后双向透传）与 Location 重写（防重定向回 127.0.0.1）。
+ * Optional LAN bridge for the dsh Web UI.
+ *
+ * <p>dsh itself is always loopback-only. This service is the only component
+ * that binds the LAN address and it never forwards the dsh launch token or a
+ * backend Set-Cookie header to a LAN client. The dsh BrowserAuth cookie is
+ * captured after an internal loopback exchange and retained only in memory.</p>
  */
 public final class LanProxyService {
 
-    private static final String TAG = "DSHA-LanProxy";
-    /** 桥监听端口：WebUI 默认 3080，桥用 3081 避免端口冲突（用户访问 http://<手机IP>:3081/） */
-    public static final int LAN_PORT = 3081;
-    /** 后端 WebUI 地址 */
-    public static final int BACKEND_PORT = 3080;
+  private static final String TAG = "DSHA-LanProxy";
+  private static final String PREF_LAN_TOKEN = Constants.KEY_LAN_TOKEN_V2;
+  private static final String LAN_COOKIE_MAX_AGE = "43200";
+  private static final SecureRandom RANDOM = new SecureRandom();
 
-    private static ServerSocket server;
-    private static Thread acceptThread;
-    private static volatile boolean running;
-    /** 供 Location 重写用的局域网 IP（可随时刷新） */
-    private static volatile String lanIp = "";
-    /** rootfs 日志路径（终端可 tail /root/dsh-lan.log 查看桥状态） */
-    private static volatile String logPath = "";
+  /** Historical preference only; published links must use port(generation). */
+  public static final int LAN_PORT = com.deepseekharness.app.util.LanPortPolicy.LEGACY_PORT;
 
-    private LanProxyService() {}
+  public static final int DEFAULT_BACKEND_PORT = 3080;
 
-    public static synchronized void start(String rootfsDir) {
-        if (running) return;
-        logPath = rootfsDir + "/root/dsh-lan.log";
-        running = true;
-        lanIp = HarnessController.getLanAddress();
-        log("LAN 桥启动中: 0.0.0.0:" + LAN_PORT + " → 127.0.0.1:" + BACKEND_PORT + " (LAN IP=" + lanIp + ")");
-        acceptThread = new Thread(() -> {
-            try {
-                server = new ServerSocket();
-                server.setReuseAddress(true);
-                server.bind(new InetSocketAddress("0.0.0.0", LAN_PORT));
-                log("LAN 桥已就绪 ✓ 访问地址: http://" + (lanIp.isEmpty() ? "<手机IP>" : lanIp) + ":" + LAN_PORT + "/");
-                while (running) {
-                    try {
-                        Socket client = server.accept();
-                        client.setSoTimeout(120000);
-                        Thread h = new Thread(() -> handle(client), "lanproxy");
-                        h.setDaemon(true);
-                        h.start();
-                    } catch (IOException e) {
-                        if (running) log("accept 异常: " + e.getMessage());
-                    }
-                }
-            } catch (IOException e) {
-                log("桥启动失败: " + e.getMessage());
-                running = false;
-            } finally {
-                closeQuietly(server);
-                server = null;
-            }
-        }, "lanproxy-accept");
-        acceptThread.setDaemon(true);
-        acceptThread.start();
+  private static final com.deepseekharness.app.util.LanTokenState LAN_TOKEN =
+      new com.deepseekharness.app.util.LanTokenState();
+
+  /**
+   * BrowserAuth state is published as one immutable reference.  Keeping the
+   * generation and cookie in separate volatile fields would allow a request
+   * to observe a generation from one dsh run and a cookie from another.
+   */
+  private static final class AuthState {
+    final String cookie;
+    final long generation;
+
+    AuthState(String cookie, long generation) {
+      this.cookie = cookie;
+      this.generation = generation;
     }
+  }
 
-    public static synchronized void stop() {
-        if (running) {
-            log("LAN 桥已停止");
+  private static final AuthState NO_DSH_AUTH = new AuthState("", 0);
+  private static volatile AuthState dshAuth = NO_DSH_AUTH;
+
+  /**
+   * Opaque, immutable request credential lease.  It is deliberately not
+   * serializable and exposes no cookie accessor; it only lets a handler
+   * prove its prior snapshot still belongs to the live dsh generation.
+   */
+  static final class AuthSnapshot {
+    private final AuthState state;
+
+    private AuthSnapshot(AuthState state) {
+      this.state = state;
+    }
+  }
+
+  /** One bind/listener lifetime.  An old accept loop must never tear down a new one. */
+  private static final class ProxyRun {
+    final long epoch;
+    final long generation;
+    final int backendPort;
+    final SocketDispatch dispatch = new SocketDispatch("dsha-lan", 32, 8, 16, 8);
+    final LanNetworkState network = new LanNetworkState();
+    volatile boolean active = true;
+
+    /** Set only after the ServerSocket bind has completed successfully. */
+    volatile boolean bound;
+
+    volatile ServerSocket server;
+    volatile Thread acceptThread;
+
+    ProxyRun(long epoch, long generation, int backendPort) {
+      this.epoch = epoch;
+      this.generation = generation;
+      this.backendPort = backendPort;
+    }
+  }
+
+  private static volatile ProxyRun activeRun;
+  private static long nextRunEpoch;
+  /* Retained for the package-private rewriteResponse(String) test helper. */
+  private static volatile int backendPort = DEFAULT_BACKEND_PORT;
+  private static volatile String logPath = "";
+  private static final Object LOG_LOCK = new Object();
+  private static final java.util.Map<String, Long> lastConnLog =
+      new java.util.concurrent.ConcurrentHashMap<>();
+
+  private LanProxyService() {}
+
+  /** Return this process's 256-bit LAN credential; revoked stored values are never reused. */
+  public static synchronized String getLanToken(Context ctx) {
+    if (isValidLanToken(LAN_TOKEN.current())) return LAN_TOKEN.current();
+    String generated =
+        LAN_TOKEN.ensure(
+            () -> {
+              byte[] bytes = new byte[32];
+              RANDOM.nextBytes(bytes);
+              return Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
+            });
+    try {
+      if (ctx != null) {
+        ctx.getApplicationContext()
+            .getSharedPreferences(Constants.PREFS, Context.MODE_PRIVATE)
+            .edit()
+            .putString(PREF_LAN_TOKEN, generated)
+            .apply();
+      }
+    } catch (Throwable ignored) {
+    }
+    return generated;
+  }
+
+  private static boolean isValidLanToken(String value) {
+    return com.deepseekharness.app.util.LanTokenState.valid(value);
+  }
+
+  /**
+   * Publish one BrowserAuth cookie for the current dsh generation. The
+   * caller must have obtained it from a loopback 303 exchange.
+   */
+  public static synchronized boolean setDshAuthCookie(String cookie, long generation) {
+    if (!isValidDshCookie(cookie) || generation <= 0) return false;
+    String normalized = cookie.trim();
+    ProxyRun run = activeRun;
+    // A different dsh generation must never reuse the old listener. A
+    // same-generation cookie refresh is safe: existing workers retain an
+    // old AuthState snapshot and fail the identity check below, while new
+    // requests receive only the replacement cookie.
+    if (run != null && run.generation != generation) {
+      deactivateRunLocked(run);
+      closeRunSockets(run);
+    }
+    dshAuth = new AuthState(normalized, generation);
+    return true;
+  }
+
+  /** Clear the in-memory backend credential when dsh stops or restarts. */
+  public static synchronized void clearDshAuth(long generation) {
+    AuthState current = dshAuth;
+    if (generation == 0 || current.generation == generation) {
+      LAN_TOKEN.revoke();
+      dshAuth = NO_DSH_AUTH;
+      ProxyRun run = activeRun;
+      if (run != null && (generation == 0 || run.generation == generation)) {
+        deactivateRunLocked(run);
+        closeRunSockets(run);
+      }
+    }
+  }
+
+  public static boolean hasDshAuth(long generation) {
+    return hasDshAuth(dshAuth, generation);
+  }
+
+  private static boolean hasDshAuth(AuthState state, long generation) {
+    return state != null
+        && generation > 0
+        && generation == state.generation
+        && isValidDshCookie(state.cookie);
+  }
+
+  /** Return an opaque coherent credential snapshot for the requested generation. */
+  static synchronized AuthSnapshot snapshotDshAuth(long generation) {
+    AuthState current = dshAuth;
+    return hasDshAuth(current, generation) ? new AuthSnapshot(current) : null;
+  }
+
+  /** True only while a previously acquired credential snapshot is still current. */
+  static synchronized boolean isCurrentDshAuth(AuthSnapshot snapshot) {
+    return snapshot != null
+        && dshAuth == snapshot.state
+        && hasDshAuth(snapshot.state, snapshot.state.generation);
+  }
+
+  private static synchronized AuthSnapshot snapshotDshAuth(ProxyRun run) {
+    if (!isActiveRunLocked(run)) return null;
+    AuthState current = dshAuth;
+    return hasDshAuth(current, run.generation) ? new AuthSnapshot(current) : null;
+  }
+
+  private static synchronized boolean isCurrentDshAuth(ProxyRun run, AuthSnapshot snapshot) {
+    return snapshot != null
+        && isActiveRunLocked(run)
+        && dshAuth == snapshot.state
+        && hasDshAuth(snapshot.state, run.generation);
+  }
+
+  private static boolean isValidDshCookie(String cookie) {
+    if (cookie == null) return false;
+    int semi = cookie.indexOf(';');
+    if (semi >= 0) cookie = cookie.substring(0, semi);
+    int eq = cookie.indexOf('=');
+    if (eq <= 0 || eq != cookie.lastIndexOf('=')) return false;
+    String name = cookie.substring(0, eq);
+    String value = cookie.substring(eq + 1);
+    return name.startsWith("dsh-auth-")
+        && name.length() > "dsh-auth-".length()
+        && name.matches("dsh-auth-[A-Za-z0-9_-]+")
+        && value.matches("[A-Za-z0-9_.-]+")
+        && value.length() <= 4096;
+  }
+
+  /**
+   * Select the BrowserAuth cookie from an HTTP response without assuming it
+   * is the first {@code Set-Cookie} field. Android URLConnection variants
+   * differ in whether repeated headers are returned as a list or one comma
+   * separated value, so inspect both shapes and accept only dsh-auth pairs.
+   */
+  static String extractDshAuthCookie(
+      java.util.Map<String, ? extends java.util.List<String>> headers) {
+    if (headers == null || headers.isEmpty()) return null;
+    for (java.util.Map.Entry<String, ? extends java.util.List<String>> entry : headers.entrySet()) {
+      if (entry.getKey() == null || !entry.getKey().equalsIgnoreCase("Set-Cookie")) {
+        continue;
+      }
+      java.util.List<String> values = entry.getValue();
+      if (values == null) continue;
+      for (String value : values) {
+        if (value == null || value.isEmpty()) continue;
+        for (String segment : value.split(",")) {
+          int semi = segment.indexOf(';');
+          String pair = (semi >= 0 ? segment.substring(0, semi) : segment).trim();
+          if (isValidDshCookie(pair)) return pair;
         }
-        running = false;
-        if (acceptThread != null) acceptThread.interrupt();
-        closeQuietly(server);
-        server = null;
+      }
     }
+    return null;
+  }
 
-    public static boolean isRunning() { return running; }
+  /** Compatibility overload: without an exchanged BrowserAuth cookie it does nothing. */
+  public static synchronized void start(String rootfsDir, Context ctx) {
+    start(rootfsDir, ctx, DEFAULT_BACKEND_PORT, dshAuth.generation);
+  }
 
-    /** 状态日志：同时写 logcat 与 rootfs /root/dsh-lan.log（App 终端 tail 可见） */
-    private static void log(String msg) {
-        Log.i(TAG, msg);
-        if (!logPath.isEmpty()) {
-            try (java.io.FileOutputStream fo = new java.io.FileOutputStream(logPath, true)) {
-                String line = "[" + new java.text.SimpleDateFormat("MM-dd HH:mm:ss", java.util.Locale.ROOT).format(new java.util.Date())
-                        + "] " + msg + "\n";
-                fo.write(line.getBytes(java.nio.charset.StandardCharsets.UTF_8));
-            } catch (Exception ignored) {
-            }
+  /** Compatibility overload retained for service callers. */
+  public static synchronized void start(String rootfsDir, Context ctx, int backend) {
+    start(rootfsDir, ctx, backend, dshAuth.generation);
+  }
+
+  /** Start the LAN bridge only after a current BrowserAuth cookie is available. */
+  public static synchronized void start(
+      String rootfsDir, Context ctx, int backend, long generation) {
+    if (!com.deepseekharness.app.bridge.LocalNetworkAccess.granted(ctx)) {
+      stopLanListener();
+      return;
+    }
+    if (!hasDshAuth(generation)) return;
+    // The explicit overload receives the authenticated actual port. An unknown
+    // value cannot authorize forwarding to an unrelated service on port 3080.
+    if (backend <= 0
+        || backend > 65535
+        || com.deepseekharness.app.util.WebPortPolicy.reserved(backend)) return;
+    int resolvedBackend = backend;
+    ProxyRun previous = activeRun;
+    if (isActiveRunLocked(previous)) {
+      if (previous.generation == generation && previous.backendPort == resolvedBackend) return;
+      deactivateRunLocked(previous);
+      closeRunSockets(previous);
+    }
+    getLanToken(ctx);
+    if (!isValidLanToken(LAN_TOKEN.current())) return;
+    logPath = rootfsDir == null ? "" : rootfsDir + "/root/dsh-lan.log";
+    ProxyRun run = new ProxyRun(++nextRunEpoch, generation, resolvedBackend);
+    // Keep the old compatibility field for rewriteResponse(String), but request
+    // handling always uses the immutable port captured by ProxyRun.
+    backendPort = resolvedBackend;
+    activeRun = run;
+    Thread accept = new Thread(() -> acceptLoop(run), "dsha-lan-accept-" + run.epoch);
+    accept.setDaemon(true);
+    run.acceptThread = accept;
+    accept.start();
+  }
+
+  private static void acceptLoop(ProxyRun run) {
+    ServerSocket ss = null;
+    try {
+      synchronized (LanProxyService.class) {
+        if (!isActiveRunLocked(run)) {
+          closeQuietly(ss);
+          return;
         }
-    }
-
-    // ================= 单连接处理 =================
-
-    private static void handle(Socket client) {
-        String clientIp = client.getInetAddress() == null ? "" : client.getInetAddress().getHostAddress();
-        log("连接来自: " + clientIp);
-        try (Socket clientSock = client) {
-            InputStream cin = clientSock.getInputStream();
-            OutputStream cout = clientSock.getOutputStream();
-            byte[] reqHead = new byte[65536];
-            while (running) {
-                // 1. 读请求头（到 \r\n\r\n）
-                int headLen = readHeader(cin, reqHead);
-                if (headLen <= 0) break; // EOF / 超时
-                String head = new String(reqHead, 0, headLen, java.nio.charset.StandardCharsets.ISO_8859_1);
-                String reqLine = head.substring(0, head.indexOf('\n')).trim();
-                if (reqLine.isEmpty()) break;
-                boolean upgrade = containsIgnoreCase(head, "Upgrade: websocket")
-                        || reqLine.contains("HTTP/1.1") && containsIgnoreCase(head, "Connection: Upgrade");
-
-                // 2. 改写 Host 头 → 127.0.0.1:3080
-                String rewritten = rewriteHost(head);
-                byte[] headBytes = rewritten.getBytes(java.nio.charset.StandardCharsets.ISO_8859_1);
-
-                // 3. 连接后端
-                try (Socket back = new Socket()) {
-                    back.setSoTimeout(120000);
-                    back.connect(new InetSocketAddress("127.0.0.1", BACKEND_PORT), 5000);
-                    InputStream bin = back.getInputStream();
-                    OutputStream bout = back.getOutputStream();
-                    bout.write(headBytes);
-                    bout.flush();
-                    // 请求体透传（Content-Length 部分）
-                    long bodyLen = contentLength(rewritten);
-                    if (bodyLen > 0) pipeBytes(cin, bout, bodyLen);
-
-                    // 4. 读响应头
-                    byte[] respHead = new byte[65536];
-                    int rhLen = readHeader(bin, respHead);
-                    if (rhLen <= 0) break;
-                    String rHead = new String(respHead, 0, rhLen, java.nio.charset.StandardCharsets.ISO_8859_1);
-                    boolean upgraded = rHead.startsWith("HTTP/1.1 101") || containsIgnoreCase(rHead, "Upgrade: websocket");
-
-                    // 响应头转发（Location 重写防跳回 127.0.0.1）
-                    String outHead = rewriteLocation(rHead);
-                    cout.write(outHead.getBytes(java.nio.charset.StandardCharsets.ISO_8859_1));
-                    cout.flush();
-
-                    if (upgraded) {
-                        // WebSocket：双向透传直到关闭
-                        pumpBidirectional(cin, cout, bin, bout);
-                        break;
-                    }
-                    // 普通响应体
-                    long cl = contentLength(rHead);
-                    boolean chunked = containsIgnoreCase(rHead, "Transfer-Encoding: chunked");
-                    boolean closeConn = containsIgnoreCase(rHead, "Connection: close");
-                    if (cl > 0) {
-                        pipeBytes(bin, cout, cl);
-                    } else if (chunked) {
-                        pipeChunked(bin, cout);
-                    } else {
-                        // 无长度：流式转发直到后端 EOF（SSE/长连接）
-                        pumpStream(bin, cout);
-                    }
-                    if (closeConn) break;
-                    // keep-alive：继续下一请求
-                }
-            }
-        } catch (Throwable ignored) {
+        // A retired, not-yet-bound accept thread cannot race a replacement
+        // listener for the same port after start/stop changed the active run.
+        ss =
+            com.deepseekharness.app.util.LanPortPolicy.bind(
+                com.deepseekharness.app.util.LanPortPolicy.preferred(
+                    com.deepseekharness.app.util.AppIdentity.applicationId()));
+        ss.setSoTimeout(1000);
+        run.server = ss;
+        run.bound = true;
+      }
+      log(
+          com.deepseekharness.app.util.UiText.format(
+              "LAN 代理已启动：0.0.0.0:%s -> 127.0.0.1:%s", ss.getLocalPort(), run.backendPort));
+      run.network.poll();
+      long nextNetworkCheck = System.nanoTime() + 1_000_000_000L;
+      while (isActiveRun(run)) {
+        try {
+          if (System.nanoTime() >= nextNetworkCheck) {
+            nextNetworkCheck = System.nanoTime() + 1_000_000_000L;
+            // The wildcard listener remains usable after a Wi-Fi/address change.
+            // Reclaim old streams so unreachable peers cannot exhaust its lanes.
+            if (run.network.poll()) run.dispatch.closeConnections();
+          }
+          Socket client = ss.accept();
+          client.setSoTimeout(HttpProtocol.LAN.timeoutMs);
+          if (!isActiveRun(run)) {
+            closeQuietly(client);
+            continue;
+          }
+          SocketDispatch.Ticket ticket = run.dispatch.accept(client);
+          if (ticket == null) continue;
+          try {
+            new LanConnection(ticket, run).next(true);
+          } catch (Throwable rejected) {
+            ticket.close();
+          }
+        } catch (java.net.SocketTimeoutException idle) {
+          // Periodically inspect interface identity without restarting the run,
+          // revoking credentials, or relying on an open Activity.
+        } catch (IOException e) {
+          if (isActiveRun(run))
+            log(
+                com.deepseekharness.app.util.UiText.format(
+                    "接收连接失败：%s", e.getClass().getSimpleName()));
         }
-    }
-
-    // ================= IO 工具 =================
-
-    /** 读头部直到 \r\n\r\n（或 \n\n），返回字节数；EOF 返回 -1；超长截断后放行 */
-    private static int readHeader(InputStream in, byte[] buf) throws IOException {
-        int pos = 0, matched = 0;
-        while (pos < buf.length) {
-            int b = in.read();
-            if (b < 0) return pos == 0 ? -1 : pos;
-            buf[pos++] = (byte) b;
-            if (matched == 0 && b == '\r') matched = 1;
-            else if (matched == 1 && b == '\n') matched = 2;
-            else if (matched == 2 && b == '\r') matched = 3;
-            else if (matched == 3 && b == '\n') return pos;
-            else if (matched == 2 && b == '\n') return pos; // 兼容 \n\n
-            else matched = 0;
+      }
+    } catch (IOException e) {
+      if (isActiveRun(run))
+        log(
+            com.deepseekharness.app.util.UiText.format(
+                "LAN 代理绑定失败：%s", e.getClass().getSimpleName()));
+    } finally {
+      synchronized (LanProxyService.class) {
+        closeQuietly(ss);
+        if (run.server == ss) run.server = null;
+        run.bound = false;
+        if (activeRun == run) {
+          run.active = false;
+          activeRun = null;
         }
-        return pos;
+      }
+      closeRunSockets(run);
+      run.dispatch.close();
+    }
+  }
+
+  public static void stop() {
+    stop(0);
+  }
+
+  /**
+   * Stop only the externally reachable listener after the user turns LAN
+   * sharing off.  The local dsh BrowserAuth cookie remains in memory so the
+   * loopback WebView does not become "unauthenticated" merely because the
+   * optional proxy was disabled.  dsh stop/restart still uses {@link #stop()}
+   * or {@link #clearDshAuth(long)} and clears that credential immediately.
+   */
+  public static void stopLanListener() {
+    ProxyRun run;
+    synchronized (LanProxyService.class) {
+      LAN_TOKEN.revoke();
+      run = activeRun;
+      if (run != null) deactivateRunLocked(run);
+    }
+    if (run != null) {
+      closeRunSockets(run);
+      log(com.deepseekharness.app.util.UiText.text("LAN 代理已停止"));
+    }
+  }
+
+  /**
+   * Stop only the proxy run belonging to {@code generation}.  A controller
+   * clearing an old BrowserAuth handoff uses this overload so a delayed
+   * cleanup cannot tear down a newer dsh/LAN generation that has already
+   * exchanged its cookie.  Generation {@code 0} retains the unconditional
+   * service-shutdown behavior used by lifecycle callbacks.
+   */
+  public static void stop(long generation) {
+    ProxyRun run;
+    synchronized (LanProxyService.class) {
+      run = activeRun;
+      if (generation <= 0
+          || run != null && run.generation == generation
+          || dshAuth.generation == generation) LAN_TOKEN.revoke();
+      if (generation > 0) {
+        if (run == null || run.generation != generation) run = null;
+        else deactivateRunLocked(run);
+      } else if (run != null) {
+        deactivateRunLocked(run);
+      }
+      // Stopping the listener is also a hard BrowserAuth boundary: an
+      // old worker must not be able to resume after dsh comes back.
+      if (generation <= 0 || dshAuth.generation == generation) {
+        dshAuth = NO_DSH_AUTH;
+      }
+    }
+    if (run != null) closeRunSockets(run);
+    if (generation <= 0 || run != null) log(com.deepseekharness.app.util.UiText.text("LAN 代理已停止"));
+  }
+
+  public static boolean isRunning() {
+    ProxyRun run = activeRun;
+    return isActiveRun(run) && run.bound;
+  }
+
+  /** Explicit name for callers that need to distinguish bind success from startup in flight. */
+  public static boolean isBound() {
+    return isRunning();
+  }
+
+  /** The port belongs to this exact authenticated Web generation, or is unavailable. */
+  public static synchronized int port(long generation) {
+    ProxyRun run = activeRun;
+    return isActiveRunLocked(run)
+            && run.generation == generation
+            && hasDshAuth(generation)
+            && run.bound
+            && run.server != null
+            && run.server.isBound()
+            && !run.server.isClosed()
+        ? run.server.getLocalPort()
+        : 0;
+  }
+
+  public static synchronized int port() {
+    return activeRun == null ? 0 : port(activeRun.generation);
+  }
+
+  /** UI may reveal the existing credential only for a currently held authenticated listener. */
+  public static synchronized String boundLanToken(long generation) {
+    String token = LAN_TOKEN.current();
+    return port(generation) > 0 && isValidLanToken(token) ? token : "";
+  }
+
+  private static boolean isActiveRun(ProxyRun run) {
+    return run != null && run.active && activeRun == run;
+  }
+
+  private static boolean isActiveRunLocked(ProxyRun run) {
+    return run != null && run.active && activeRun == run;
+  }
+
+  private static void deactivateRunLocked(ProxyRun run) {
+    if (run == null) return;
+    if (activeRun == run) activeRun = null;
+    run.active = false;
+    closeQuietly(run.server);
+    run.server = null;
+    if (run.acceptThread != null) run.acceptThread.interrupt();
+    run.dispatch.close();
+  }
+
+  private static void closeRunSockets(ProxyRun run) {
+    if (run == null) return;
+    run.dispatch.close();
+  }
+
+  /** 有限连接的各阶段转交所有权；流式正文不会占满短请求线程。 */
+  private static final class LanConnection {
+    final SocketDispatch.Ticket owner;
+    final ProxyRun run;
+    final InputStream in;
+    final OutputStream out;
+    boolean headOnly;
+
+    LanConnection(SocketDispatch.Ticket owner, ProxyRun run) throws IOException {
+      this.owner = owner;
+      this.run = run;
+      in = new java.io.BufferedInputStream(owner.socket.getInputStream(), 8192);
+      out = owner.socket.getOutputStream();
     }
 
-    private static void pipeBytes(InputStream in, OutputStream out, long n) throws IOException {
-        byte[] buf = new byte[8192];
-        long left = n;
-        while (left > 0) {
-            int r = in.read(buf, 0, (int) Math.min(buf.length, left));
-            if (r < 0) break;
-            out.write(buf, 0, r);
-            left -= r;
+    void next(boolean first) {
+      if (!isActiveRun(run) || owner.ended()) {
+        owner.close();
+        return;
+      }
+      long until =
+          first
+              ? owner.acceptedAt + HttpProtocol.LAN.timeoutMs * 1000000L
+              : HttpProtocol.deadline(HttpProtocol.LAN.timeoutMs);
+      if (!run.dispatch.read(owner, () -> read(until, first))) owner.close();
+    }
+
+    void fail(int status) {
+      fail(status, com.deepseekharness.app.util.LanFailureResponse.forStatus(status));
+    }
+
+    void fail(int status, com.deepseekharness.app.util.LanFailureResponse.Reason reason) {
+      try {
+        com.deepseekharness.app.util.LanFailureResponse.write(out, status, reason, headOnly);
+      } catch (IOException ignored) {
+      } finally {
+        owner.close();
+      }
+    }
+
+    void read(long until, boolean first) {
+      try {
+        if (!isActiveRun(run)) {
+          owner.close();
+          return;
         }
-        out.flush();
+        HttpProtocol.Head request =
+            HttpProtocol.readHead(in, owner.socket, HttpProtocol.LAN, until, true);
+        if (request == null) {
+          owner.close();
+          return;
+        }
+        headOnly = request.method.equals("HEAD");
+        String ip =
+            owner.socket.getInetAddress() == null
+                ? ""
+                : owner.socket.getInetAddress().getHostAddress();
+        if (shouldLogConn(ip)) log(com.deepseekharness.app.util.UiText.format("连接来自 %s", ip));
+        String token = LAN_TOKEN.current();
+        int authorized = LanAuth.tokenOk(request.raw(), token);
+        if (authorized == LanAuth.AUTH_DENY) {
+          fail(401, LanAuth.denialReason(request.raw(), token));
+          return;
+        }
+        if (authorized == LanAuth.AUTH_OK_SET_COOKIE) {
+          try {
+            writeLanRedirect(out, token, request.target);
+          } finally {
+            owner.close();
+          }
+          return;
+        }
+        AuthSnapshot auth = snapshotDshAuth(run);
+        if (auth == null) {
+          fail(503, com.deepseekharness.app.util.LanFailureResponse.Reason.BACKEND_AUTH_NOT_READY);
+          return;
+        }
+        boolean websocket = request.websocketRequest();
+        Exchange exchange = new Exchange(this, request, auth, websocket);
+        boolean stream =
+            request.requestBody().streaming()
+                || websocket
+                || request.value("Accept").toLowerCase(Locale.ROOT).contains("text/event-stream");
+        if (stream) {
+          if (!run.dispatch.stream(owner, () -> exchange.serve(true))) fail(503);
+        } else if (!run.dispatch.request(owner, () -> exchange.serve(false))) fail(503);
+      } catch (java.net.SocketTimeoutException timeout) {
+        // A keep-alive idle timeout is not a request and must not leave an
+        // unsolicited 408 for a browser racing to reuse this connection.
+        if (first) fail(408);
+        else owner.close();
+      } catch (HttpProtocol.Failure invalid) {
+        fail(invalid.status);
+      } catch (IOException error) {
+        owner.close();
+      }
+    }
+  }
+
+  private static final class Exchange {
+    final LanConnection client;
+    final HttpProtocol.Head request;
+    final AuthSnapshot auth;
+    final boolean websocket;
+    Socket back;
+    InputStream bin;
+    OutputStream bout;
+    boolean responseStarted;
+
+    Exchange(
+        LanConnection client, HttpProtocol.Head request, AuthSnapshot auth, boolean websocket) {
+      this.client = client;
+      this.request = request;
+      this.auth = auth;
+      this.websocket = websocket;
     }
 
-    /** chunked 透传直到末尾 0 块 */
-    private static void pipeChunked(InputStream in, OutputStream out) throws IOException {
-        java.io.ByteArrayOutputStream line = new java.io.ByteArrayOutputStream();
+    void serve(boolean longLane) {
+      try {
+        if (!isActiveRun(client.run) || client.owner.ended()) {
+          client.owner.close();
+          return;
+        }
+        back = new Socket();
+        client.owner.attach(back);
+        back.setSoTimeout(HttpProtocol.BODY_IDLE_MS);
+        client.owner.socket.setSoTimeout(HttpProtocol.BODY_IDLE_MS);
+        back.connect(new InetSocketAddress("127.0.0.1", client.run.backendPort), 5000);
+        bin = new java.io.BufferedInputStream(back.getInputStream(), 8192);
+        bout = back.getOutputStream();
+        // 保留已有代次/鉴权写入临界区；逐跳头在注入本轮内部 Cookie 之前处理。
+        String forwarded =
+            writeCurrentRequest(client.run, auth, request.forwarded(websocket, !websocket), bout);
+        if (forwarded == null) {
+          client.fail(
+              503, com.deepseekharness.app.util.LanFailureResponse.Reason.BACKEND_AUTH_NOT_READY);
+          return;
+        }
+        if (request.value("Expect").equalsIgnoreCase("100-continue")) {
+          client.out.write("HTTP/1.1 100 Continue\r\n\r\n".getBytes(StandardCharsets.US_ASCII));
+          client.out.flush();
+        }
+        HttpProtocol.copyBody(request.requestBody(), client.in, bout);
+        long until = HttpProtocol.deadline(HttpProtocol.BODY_IDLE_MS);
+        HttpProtocol.Head response;
+        int interim = 0;
         while (true) {
-            line.reset();
-            int b;
-            int size = -1;
-            while ((b = in.read()) >= 0) {
-                line.write(b);
-                if (line.size() >= 2 && line.toByteArray()[line.size() - 2] == '\r' && line.toByteArray()[line.size() - 1] == '\n') {
-                    try {
-                        size = Integer.parseInt(new String(line.toByteArray(), java.nio.charset.StandardCharsets.ISO_8859_1).trim().split(";")[0], 16);
-                    } catch (Exception e) { size = -1; }
-                    break;
+          response = HttpProtocol.readHead(bin, back, HttpProtocol.LAN, until, false);
+          if (response == null) throw new IOException("HTTP_BACKEND_EOF");
+          if (response.status >= 200 || response.status == 101) break;
+          if (++interim > 8) throw new IOException("HTTP_TOO_MANY_INFORMATIONAL");
+          response.responseBody(request);
+          client.out.write(
+              rewriteResponse(response.forwarded(false, false), client.run.backendPort)
+                  .getBytes(StandardCharsets.ISO_8859_1));
+          client.out.flush();
+        }
+        HttpProtocol.Body body = response.responseBody(request);
+        // A route-level denial is not proof that BrowserAuth itself expired.
+        // Keep the backend's denial intact; every subsequent request still has
+        // to pass the current run and backend's own authentication checks.
+        boolean persistent =
+            !request.close()
+                && body.kind != HttpProtocol.Kind.CLOSE
+                && body.kind != HttpProtocol.Kind.UPGRADE;
+        String head =
+            rewriteResponse(
+                response.forwarded(body.kind == HttpProtocol.Kind.UPGRADE, !persistent),
+                client.run.backendPort);
+        boolean eventStream =
+            response.value("Content-Type").toLowerCase(Locale.ROOT).startsWith("text/event-stream");
+        if (!longLane && (body.streaming() || eventStream)) {
+          if (!client.run.dispatch.stream(
+              client.owner, () -> transfer(body, head, persistent, eventStream))) client.fail(503);
+          return;
+        }
+        transfer(body, head, persistent, eventStream);
+      } catch (HttpProtocol.Failure invalid) {
+        if (!responseStarted) client.fail(invalid.status == 400 ? 400 : 502);
+        else client.owner.close();
+      } catch (IOException error) {
+        if (!responseStarted) client.fail(502);
+        else client.owner.close();
+      }
+    }
+
+    void transfer(HttpProtocol.Body body, String head, boolean persistent, boolean eventStream) {
+      try {
+        if (!isActiveRun(client.run) || client.owner.ended()) {
+          client.owner.close();
+          return;
+        }
+        back.setSoTimeout(eventStream ? 0 : HttpProtocol.BODY_IDLE_MS);
+        responseStarted = true;
+        client.out.write(head.getBytes(StandardCharsets.ISO_8859_1));
+        client.out.flush();
+        if (body.kind == HttpProtocol.Kind.UPGRADE) {
+          tunnel();
+          return;
+        }
+        HttpProtocol.copyBody(body, bin, client.out);
+        client.owner.detach(back);
+        if (persistent) client.next(false);
+        else client.owner.close();
+      } catch (IOException failure) {
+        client.owner.close();
+      }
+    }
+
+    void tunnel() throws IOException {
+      client.owner.socket.setSoTimeout(0);
+      back.setSoTimeout(0);
+      client.owner.socket.setKeepAlive(true);
+      back.setKeepAlive(true);
+      java.util.concurrent.Future<?> up =
+          client.run.dispatch.pump(
+              client.owner,
+              () -> {
+                try {
+                  HttpProtocol.copyToEnd(client.in, bout);
+                  back.shutdownOutput();
+                } catch (IOException failure) {
+                  client.owner.close();
                 }
-                if (line.size() > 1024) break;
-            }
-            if (b < 0) break;
-            out.write(line.toByteArray());
-            if (size == 0) { out.flush(); break; }
-            if (size > 0) {
-                pipeBytes(in, out, size);
-                // 块尾 CRLF
-                int c1 = in.read(); int c2 = in.read();
-                out.write(c1); out.write(c2);
-            }
+              });
+      try {
+        HttpProtocol.copyToEnd(bin, client.out);
+        client.owner.socket.shutdownOutput();
+        try {
+          up.get(3000, java.util.concurrent.TimeUnit.MILLISECONDS);
+        } catch (java.util.concurrent.TimeoutException ignored) {
+        } catch (java.util.concurrent.ExecutionException failure) {
+          client.owner.close();
+        } catch (InterruptedException interrupted) {
+          Thread.currentThread().interrupt();
         }
-        out.flush();
+      } finally {
+        client.owner.close();
+        up.cancel(true);
+      }
     }
+  }
 
-    private static void pumpStream(InputStream in, OutputStream out) throws IOException {
-        byte[] buf = new byte[8192];
-        int r;
-        while ((r = in.read(buf)) >= 0) {
-            out.write(buf, 0, r);
-            out.flush();
+  /** 仅返回计数，不包含请求、地址或鉴权资料。 */
+  public static java.util.Map<String, Long> resourceMetrics() {
+    ProxyRun run = activeRun;
+    return run == null ? java.util.Collections.emptyMap() : run.dispatch.metrics();
+  }
+
+  /**
+   * Write an authenticated request only if this handler still owns the
+   * current listener and BrowserAuth snapshot.  Returning null is a
+   * fail-closed state transition, never a signal to forward without cookie.
+   */
+  private static String writeCurrentRequest(
+      ProxyRun run, AuthSnapshot snapshot, String head, OutputStream out) throws IOException {
+    synchronized (LanProxyService.class) {
+      if (!isCurrentDshAuth(run, snapshot)) return null;
+      String forwarded = rewriteRequest(head, run.backendPort, snapshot.state.cookie);
+      if (forwarded.isEmpty()) return null;
+      out.write(forwarded.getBytes(StandardCharsets.ISO_8859_1));
+      out.flush();
+      return forwarded;
+    }
+  }
+
+  private static void writeLanRedirect(OutputStream out, String token, String target)
+      throws IOException {
+    if (!isValidLanToken(token)) {
+      com.deepseekharness.app.util.LanFailureResponse.write(
+          out,
+          503,
+          com.deepseekharness.app.util.LanFailureResponse.Reason.TOKEN_UNAVAILABLE,
+          false);
+      return;
+    }
+    String response =
+        "HTTP/1.1 303 See Other\r\n"
+            + "Location: "
+            + LanAuth.cleanRedirectTarget(target)
+            + "\r\nCache-Control: no-store\r\n"
+            + "Referrer-Policy: no-referrer\r\n"
+            + "Set-Cookie: "
+            + LanAuth.COOKIE_NAME
+            + "="
+            + token
+            + "; Path=/; Max-Age="
+            + LAN_COOKIE_MAX_AGE
+            + "; HttpOnly; SameSite=Strict\r\n"
+            + "Content-Length: 0\r\nConnection: close\r\n\r\n";
+    out.write(response.getBytes(StandardCharsets.ISO_8859_1));
+    out.flush();
+  }
+
+  /** Rewrite all browser-controlled authority/cookie fields for loopback. */
+  static String rewriteRequest(String head, int backend, String dshCookie) {
+    // This helper is intentionally fail-closed too.  The handler already
+    // has a generation-bound snapshot, but no caller should ever be able
+    // to turn an absent/invalid BrowserAuth cookie into a raw backend
+    // request by using the rewrite helper directly.
+    if (head == null || !isValidDshCookie(dshCookie)) return "";
+    StringBuilder result = new StringBuilder();
+    boolean first = true;
+    boolean host = false;
+    boolean origin = false;
+    boolean secFetchSite = false;
+    boolean cookieAdded = false;
+    for (String line : head.split("\\r?\\n", -1)) {
+      if (line.isEmpty()) {
+        // Browser navigation requests may omit these fields. Add their
+        // loopback equivalents so dsh never sees an ambiguous origin.
+        if (!host) {
+          result.append("Host: 127.0.0.1:").append(backend).append("\r\n");
+          host = true;
         }
-    }
-
-    private static void pumpBidirectional(InputStream aIn, OutputStream aOut, InputStream bIn, OutputStream bOut) {
-        Thread t1 = new Thread(() -> { try { pumpStream(aIn, bOut); } catch (Throwable ignored) {} });
-        Thread t2 = new Thread(() -> { try { pumpStream(bIn, aOut); } catch (Throwable ignored) {} });
-        t1.setDaemon(true); t2.setDaemon(true);
-        t1.start(); t2.start();
-        try { t1.join(60000); } catch (InterruptedException ignored) {}
-        try { t2.join(60000); } catch (InterruptedException ignored) {}
-    }
-
-    private static long contentLength(String head) {
-        for (String l : head.split("\r?\n")) {
-            int i = l.indexOf(':');
-            if (i > 0 && l.substring(0, i).trim().equalsIgnoreCase("Content-Length")) {
-                try { return Long.parseLong(l.substring(i + 1).trim()); } catch (Exception e) { return 0; }
-            }
+        if (!origin) {
+          result.append("Origin: http://127.0.0.1:").append(backend).append("\r\n");
+          origin = true;
         }
-        return 0;
-    }
-
-    private static boolean containsIgnoreCase(String s, String needle) {
-        int idx = s.toLowerCase(java.util.Locale.ROOT).indexOf(needle.toLowerCase(java.util.Locale.ROOT));
-        return idx >= 0;
-    }
-
-    /** 重写请求 Host 头为 127.0.0.1:端口（后端 Host 校验放行） */
-    private static String rewriteHost(String head) {
-        StringBuilder sb = new StringBuilder();
-        boolean hostDone = false;
-        for (String l : head.split("\r?\n")) {
-            if (l.isEmpty()) { sb.append("\r\n"); continue; }
-            int i = l.indexOf(':');
-            if (i > 0 && l.substring(0, i).trim().equalsIgnoreCase("Host")) {
-                sb.append("Host: 127.0.0.1:").append(BACKEND_PORT).append("\r\n");
-                hostDone = true;
-            } else {
-                sb.append(l).append("\r\n");
-            }
+        if (!secFetchSite) {
+          result.append("Sec-Fetch-Site: same-origin\r\n");
+          secFetchSite = true;
         }
-        if (!hostDone) sb.insert(0, "Host: 127.0.0.1:" + BACKEND_PORT + "\r\n");
-        return sb.toString();
-    }
-
-    /** 响应头里 Location 重写：127.0.0.1:3080 → 局域网IP:3081（防跳回本机） */
-    private static String rewriteLocation(String head) {
-        if (!containsIgnoreCase(head, "Location:")) return head;
-        StringBuilder sb = new StringBuilder();
-        for (String l : head.split("\r?\n")) {
-            if (l.isEmpty()) { sb.append("\r\n"); continue; }
-            int i = l.indexOf(':');
-            if (i > 0 && l.substring(0, i).trim().equalsIgnoreCase("Location")) {
-                String v = l.substring(i + 1).trim();
-                String ip = lanIp.isEmpty() ? "127.0.0.1" : lanIp;
-                v = v.replace("http://127.0.0.1:" + BACKEND_PORT, "http://" + ip + ":" + LAN_PORT);
-                v = v.replace("http://localhost:" + BACKEND_PORT, "http://" + ip + ":" + LAN_PORT);
-                sb.append("Location: ").append(v).append("\r\n");
-            } else {
-                sb.append(l).append("\r\n");
-            }
+        if (!cookieAdded && isValidDshCookie(dshCookie)) {
+          result.append("Cookie: ").append(dshCookie).append("\r\n");
+          cookieAdded = true;
         }
-        return sb.toString();
+        result.append("\r\n");
+        continue;
+      }
+      if (first) {
+        result.append(LanAuth.stripTokenFromRequestLine(line)).append("\r\n");
+        first = false;
+        continue;
+      }
+      int colon = line.indexOf(':');
+      String key = colon > 0 ? line.substring(0, colon).trim() : "";
+      String lower = key.toLowerCase(Locale.ROOT);
+      if (lower.equals("host")) {
+        result.append("Host: 127.0.0.1:").append(backend).append("\r\n");
+        host = true;
+      } else if (lower.equals("origin")) {
+        result.append("Origin: http://127.0.0.1:").append(backend).append("\r\n");
+        origin = true;
+      } else if (lower.equals("sec-fetch-site")) {
+        result.append("Sec-Fetch-Site: same-origin\r\n");
+        secFetchSite = true;
+      } else if (lower.equals("referer")
+          || lower.equals("cookie")
+          || lower.equals("authorization")
+          || (lower.contains("dsha") && lower.contains("token"))) {
+        // Never pass a LAN credential, a stale external cookie, or a
+        // similarly named compatibility header to dsh.
+      } else {
+        result.append(line).append("\r\n");
+      }
     }
+    if (!host) {
+      // Host belongs after the request line.  Inserting at offset zero
+      // would turn it into the first line and make the request invalid.
+      int firstBreak = result.indexOf("\r\n");
+      String hostLine = "Host: 127.0.0.1:" + backend + "\r\n";
+      if (firstBreak >= 0) result.insert(firstBreak + 2, hostLine);
+      else result.insert(0, hostLine);
+    }
+    if (!cookieAdded && isValidDshCookie(dshCookie)) {
+      int end = result.lastIndexOf("\r\n\r\n");
+      if (end >= 0) result.insert(end, "Cookie: " + dshCookie + "\r\n");
+    }
+    // 归一化结尾（与 rewriteResponse 相同）：split(-1) 会给请求头后多留一个 \r\n，
+    // 对 GET 无影响，但对 POST 会把正文顶错位（Content-Length 少算 2 字节）→ dsh 400。
+    // 恰好保留一个空行分隔，正文从正确偏移开始。
+    String out = result.toString();
+    while (out.endsWith("\r\n")) out = out.substring(0, out.length() - 2);
+    return out + "\r\n\r\n";
+  }
 
-    private static void closeQuietly(ServerSocket s) {
-        try { if (s != null) s.close(); } catch (Exception ignored) {}
+  /** Drop backend cookies and rewrite redirects so dsh credentials stay internal. */
+  static String rewriteResponse(String head) {
+    return rewriteResponse(head, backendPort);
+  }
+
+  private static String rewriteResponse(String head, int responseBackendPort) {
+    StringBuilder result = new StringBuilder();
+    // 注意：split 默认限位会把「头与正文之间的空行」这个末尾空串也删掉（少了 \r\n\r\n），
+    // 而 -1 又会多留一个空串（多了 \r\n）。两者都会让客户端解析失败 ——
+    // 这里用 -1 处理后统一归一化结尾：剥掉多余 CRLF，恰好保留一个空行分隔。
+    for (String line : head.split("\\r?\\n", -1)) {
+      if (line.isEmpty()) {
+        result.append("\r\n");
+        continue;
+      }
+      int colon = line.indexOf(':');
+      String key = colon > 0 ? line.substring(0, colon).trim() : "";
+      if (key.equalsIgnoreCase("Set-Cookie")
+          || key.equalsIgnoreCase("Set-Cookie2")
+          || key.equalsIgnoreCase("Authorization")
+          || key.equalsIgnoreCase("Proxy-Authorization")
+          || key.equalsIgnoreCase("X-Dsha-Token")
+          || key.equalsIgnoreCase("X-Token")
+          || key.toLowerCase(Locale.ROOT).startsWith("dsh-auth-")) continue;
+      // The LAN endpoint is a same-origin proxy.  Do not expose a
+      // permissive backend CORS policy (especially "*") to a browser;
+      // keeping it would invite callers to treat the proxy as a
+      // cross-origin API and would be misleading once credentials are
+      // involved.
+      if (key.equalsIgnoreCase("Access-Control-Allow-Origin")
+          || key.equalsIgnoreCase("Access-Control-Allow-Credentials")
+          || key.equalsIgnoreCase("Access-Control-Allow-Headers")
+          || key.equalsIgnoreCase("Access-Control-Allow-Methods")) continue;
+      if (key.equalsIgnoreCase("Location")) {
+        String value = line.substring(colon + 1).trim();
+        // Drop the backend authority, leaving the original path's
+        // leading slash intact. Replacing the authority with "/"
+        // would turn "/?x=1" into "//?x=1".
+        value = value.replace("http://127.0.0.1:" + responseBackendPort, "");
+        value = value.replace("http://localhost:" + responseBackendPort, "");
+        value = LanAuth.stripTokenFromUrl(value);
+        result.append("Location: ").append(value).append("\r\n");
+      } else {
+        result.append(line).append("\r\n");
+      }
     }
+    String out = result.toString();
+    // 归一化结尾：多余的 CRLF 会让 chunked 正文首行解析成空十六进制长度
+    while (out.endsWith("\r\n")) out = out.substring(0, out.length() - 2);
+    return out + "\r\n\r\n";
+  }
+
+  private static boolean shouldLogConn(String ip) {
+    long now = System.currentTimeMillis();
+    Long previous = lastConnLog.get(ip);
+    if (previous != null && now - previous < 60000) return false;
+    if (lastConnLog.size() > 256) lastConnLog.clear();
+    lastConnLog.put(ip, now);
+    return true;
+  }
+
+  private static void log(String message) {
+    // The same line is sent to logcat and the persistent diagnostic file.
+    // Sanitize once at this boundary so future call sites cannot leak a
+    // BrowserAuth/LAN credential through either sink.
+    message = SensitiveData.redact(message);
+    Log.i(TAG, message);
+    if (logPath.isEmpty()) return;
+    synchronized (LOG_LOCK) {
+      try (java.io.FileOutputStream out = new java.io.FileOutputStream(logPath, true)) {
+        out.write((message + "\n").getBytes(StandardCharsets.UTF_8));
+      } catch (Throwable ignored) {
+      }
+    }
+  }
+
+  private static void closeQuietly(Socket socket) {
+    try {
+      if (socket != null) socket.close();
+    } catch (IOException ignored) {
+    }
+  }
+
+  private static void closeQuietly(ServerSocket socket) {
+    try {
+      if (socket != null) socket.close();
+    } catch (IOException ignored) {
+    }
+  }
 }

@@ -1,0 +1,4 @@
+# 由官方 DSH bundle 发现并加载实际 Cordis 插件入口。
+- insert:
+    - id: dsha-connect-device
+      name: dsha-connect-device

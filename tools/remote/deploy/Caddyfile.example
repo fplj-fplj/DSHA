@@ -1,0 +1,17 @@
+# Add this as an independent host only after checking the existing web server.
+# Do not replace the site's Caddyfile. DNS and certificate issuance are operator work.
+relay.example.invalid {
+    handle /v1/* {
+        reverse_proxy 127.0.0.1:8080
+    }
+    handle /healthz {
+        reverse_proxy 127.0.0.1:8080
+    }
+    handle /readyz {
+        reverse_proxy 127.0.0.1:8080
+    }
+    handle {
+        reverse_proxy 127.0.0.1:4002
+    }
+    # Do not enable request/access logs: claim JSON carries a QR capability.
+}

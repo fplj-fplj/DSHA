@@ -1,0 +1,18 @@
+{
+  "name": "dsha-connect-device",
+  "version": "0.1.1",
+  "description": "通过用户级 DSHA Connect companion 操作已配对手机的 DSH Cordis 插件",
+  "type": "module",
+  "main": "index.js",
+  "exports": { ".": "./index.js", "./client": "./client.js" },
+  "files": ["index.js", "client.js", "session-control.js", "README.md", "cordis.patch.yml"],
+  "dsh": { "bundle": { "patch": "./cordis.patch.yml" } },
+  "engines": { "node": ">=22" },
+  "peerDependencies": {
+    "@deepseek-ai/dsh-tools": ">=0.2.1-rc.2 <0.3.0",
+    "@deepseek-ai/dsh-system-prompt": ">=0.2.1-rc.2 <0.3.0",
+    "@deepseek-ai/dsh-attachment": ">=0.2.1-rc.2 <0.3.0",
+    "@deepseek-ai/dsh-api-session-controller": ">=0.2.1-rc.2 <0.3.0"
+  },
+  "license": "MIT"
+}

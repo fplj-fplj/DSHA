@@ -1,0 +1,8 @@
+{
+  "schema": 1,
+  "url": "https://api.github.com/repos/ym2025szz/DSHA-prerelase/releases/assets/668317688",
+  "sha256": "4a38b8f44f5c2697dabeb276cb00b22f69d67d3fbec5ef4af9a56cdfa88e3dbf",
+  "format": "source-archive",
+  "release": "v0.2.1-rc.2-20261023.1500",
+  "asset": "DSHA-prerelase-0.2.1-rc.2-20261023.1500-source.zip"
+}

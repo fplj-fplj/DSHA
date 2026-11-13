@@ -55,6 +55,12 @@ jobs:
           python3 tools/native-session/build.py --ndk "$ANDROID_HOME/ndk/${{ steps.toolchain.outputs.ndk }}" --check
       - name: Prepare current host fixture
         run: python3 tools/prepare-test-runtime.py
+      - name: Prepare browser from the locked Playwright dependency
+        run: |
+          export DSHA_PLAYWRIGHT="$(python3 -c 'import json; from pathlib import Path; print(Path(json.load(open("app/build/test-runtimes/current.json"))["raw"]) / "node_modules/playwright")')"
+          export PLAYWRIGHT_BROWSERS_PATH="$RUNNER_TEMP/dsha-playwright-browsers"
+          node "$DSHA_PLAYWRIGHT/cli.js" install --with-deps chromium
+          printf 'DSHA_PLAYWRIGHT=%s\nPLAYWRIGHT_BROWSERS_PATH=%s\n' "$DSHA_PLAYWRIGHT" "$PLAYWRIGHT_BROWSERS_PATH" >> "$GITHUB_ENV"
       - name: Both flavors, unit tests, release lint and complete unsigned APK checks
         run: python3 tools/verify-stability.py --stage package --java-home "$JAVA_HOME" --sdk "$ANDROID_HOME"
       - name: Sign and verify APKs with fixed fork certificate

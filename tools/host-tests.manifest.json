@@ -1161,6 +1161,18 @@
       "cli": "no positional arguments; see explicit environment/requirements"
     },
     {
+      "path": "tools/test-runtime-links.py",
+      "stage": "runtime",
+      "reason": "Current packaged runtime link cache and absolute guest paths; isolated directories, no retired startup engine or Android device operations",
+      "args": [],
+      "timeoutSeconds": 900,
+      "requires": [
+        "python39"
+      ],
+      "environment": {},
+      "cli": "no positional arguments; see explicit environment/requirements"
+    },
+    {
       "path": "tools/test-startup-recovery.py",
       "stage": "history",
       "reason": "Retired Python startup engine regression only; current production uses native ConfigurationSnapshots; not current release evidence",

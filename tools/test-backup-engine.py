@@ -618,15 +618,22 @@ class BackupTest(unittest.TestCase):
         self.assertTrue(nested.is_dir())
 
     @unittest.skipIf(os.name == "nt", "真实符号链接在 Linux 容器执行")
-    def test_official_modules_and_disabled_markers_relinked(self):
-        self.put("global/@deepseek-ai/example/package.json", '{"name":"@deepseek-ai/example"}')
-        self.put(".dsh/profiles/web/package.json", json.dumps({"dependencies": {"@deepseek-ai/example": "1.0.0"}, "dsh": {"profile": {"bundles": ["@deepseek-ai/example"]}}}))
-        self.put(".dsh/profiles/web/node_modules/@deepseek-ai/example.disabled", "disabled")
+    def test_core_disabled_intent_restores_without_importing_runtime_entity(self):
+        # 当前核心实体由 APK 在启动前重建；归档只恢复配置及禁用意图。
+        name = "@deepseek-ai/dsh-base"
+        runtime = json.dumps({"name": name, "version": "0.2.1-rc.2"})
+        self.put("global/" + name + "/package.json", runtime)
+        self.put(".dsh/profiles/web/package.json", json.dumps({"dependencies": {name: "0.2.1-rc.2"}, "dsh": {"profile": {"bundles": [name]}}}))
+        self.put(".dsh/profiles/web/node_modules/" + name + "/package.json", '{"name":"old-core-entity"}')
+        self.put(".dsh/profiles/web/node_modules/" + name + ".disabled", "disabled")
         engine.make_backup(self.root, self.archive, "plugins")
         with patch.object(engine, "GLOBAL_NM", (self.root / "global",)):
             engine.restore_archive(self.root, self.archive, "plugins")
-        self.assertTrue((self.root / ".dsh/profiles/web/node_modules/@deepseek-ai/example/package.json").is_file())
-        self.assertEqual("disabled", (self.root / ".dsh/profiles/web/node_modules/@deepseek-ai/example.disabled").read_text())
+        self.assertFalse((self.root / (".dsh/profiles/web/node_modules/" + name)).exists())
+        profile = json.loads((self.root / ".dsh/profiles/web/package.json").read_text())
+        self.assertIn(name, profile['dsh']['profile']['bundles'])
+        self.assertEqual(runtime, (self.root / ("global/" + name + "/package.json")).read_text())
+        self.assertEqual("disabled", (self.root / (".dsh/profiles/web/node_modules/" + name + ".disabled")).read_text())
 
     @unittest.skipIf(os.name == "nt", "真实符号链接在 Linux 容器执行")
     def test_selected_link_is_detached_privately_without_rewriting_original(self):

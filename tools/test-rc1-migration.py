@@ -106,8 +106,21 @@ class Migration(unittest.TestCase):
         self.assertEqual(self.finalize(),1);self.assertFalse(self.result()['sourcePreserved'])
     def test_snapshot_modified_detected_even_source_unchanged(self):
         self.prepare();(self.folder()/self.doc()['sources'][0]['snapshot']).write_text('changed');self.assertEqual(self.finalize(),1)
-    def test_source_replaced_with_same_bytes_is_unknown_not_preserved(self):
-        self.prepare();source=self.dsh/'settings.yaml';value=source.read_text();source.unlink();source.write_text(value);self.assertEqual(self.finalize(),1);self.assertFalse(self.result()['sourcePreserved'])
+    def test_source_replaced_with_distinct_identity_and_same_bytes_is_not_preserved(self):
+        self.prepare()
+        source=self.dsh/'settings.yaml'
+        original=source.read_bytes()
+        before=source.stat()
+        retained=self.root/'original-settings.yaml'
+        # 保留旧实体后再建立替代文件，避免 unlink/write 在 Linux 上立即复用同一 inode。
+        source.rename(retained)
+        source.write_bytes(original)
+        after=source.stat()
+        self.assertNotEqual((before.st_dev,before.st_ino),(after.st_dev,after.st_ino))
+        self.assertEqual(self.finalize(),1)
+        self.assertFalse(self.result()['sourcePreserved'])
+        self.assertEqual(original,retained.read_bytes())
+        self.assertEqual(original,source.read_bytes())
     def test_snapshot_io_error_blocks_prepared_and_never_creates_current(self):
         with patch.object(mod,'snapshot_row',side_effect=OSError('disk full')):self.assertEqual(self.prepare(),1)
         self.assertFalse((self.state/'current.json').exists());self.assertTrue((self.dsh/'settings.yaml').is_file())

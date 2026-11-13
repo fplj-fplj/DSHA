@@ -84,7 +84,8 @@ try{
     // 没有模型凭据也必须能关闭配置提示并编辑草稿，不把下载到 HTML 当作浏览器可用。
     const dismiss=page.getByRole('button',{name:/^(稍后配置|Configure later|Later|Skip for now|继续|Continue)$/i});
     for(let attempt=0;attempt<30;attempt++){
-      const visible=await dismiss.all();for(const button of visible)if(await button.isVisible())await button.click();
+      // 登录表单也有“继续”，未填凭据时不可点击；实际登录弹层在下方使用关闭按钮退出。
+      const visible=await dismiss.all();for(const button of visible)if(await button.isVisible()&&await button.isEnabled())await button.click();
       if(await page.locator('[contenteditable="true"]:visible,textarea:visible').count())break;
       await page.waitForTimeout(200);
     }

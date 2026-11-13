@@ -114,7 +114,7 @@ def main() -> None:
 
     python_tests = [
         ("rc1 分代迁移与独立快照", "test-rc1-migration.py"),
-        ("启动链接缓存与受管身份", "test-startup-recovery.py"),
+        ("当前启动链接缓存与受管身份", "test-runtime-links.py"),
         ("插件发现、启停与删除边界", "test-plugin-discovery.py"),
         ("系统与用户插件备份恢复分层", "test-backup-engine.py"),
         ("第三方插件直接启用与旧标记迁移", "test-plugin-review.py"),

@@ -14,3 +14,5 @@
 构建流程执行完整离线输入摘要核验、原生输入核验、两版 JUnit、两版 Release Lint、实际 APK 资产/许可/ELF 检查，然后签名并再次检查包名、版本、非调试属性、证书和 v1/v2/v3 签名。APK、校验码与 `build-receipt.json` 绑定实际源码 commit 并附在本仓库 Release。检查结果以对应 Actions 运行和回执为准，不用旧版报告代替本版验证。本轮没有设备安装、启停或真机验收。
 
 固定离线输入附件 SHA-256：`6f6d18d8013c0ed4d1eb274f266cc11c30119e33b928dbaca542ab4b22ad1465`，原始大构建输入走 [专用 Release](https://github.com/fplj-fplj/DSHA/releases/tag/build-inputs-20261113)，不进入 Git。Git 提供项目源码、工具、锁文件和构建依赖；原始仓库历史保留，旧树中本地项目没有的文件已删除。
+
+构建兼容性修正：原生会话启动器在同一 NDK 的 Windows/Linux 编译器下仅 `.comment` 说明区不同。现统一移除该非运行时区；GitHub Actions 连续两次重编字节一致，并与原启动器仅去除该区后的完整文件逐字节相同。C 源码、执行代码和其他数据段未改动。历史审计原件保留本机，已从本轮新增 Git 提交排除；公开仅保留文档和项目规定的九项元数据。

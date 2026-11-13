@@ -33,7 +33,8 @@ def build(ndk, output, check=False):
                    "-Wl,-z,common-page-size=4096", str(Path(__file__).with_name("session-launcher.c")),
                    "-o", str(candidate)]
         subprocess.run(command, check=True)
-        subprocess.run([str(tools / ("llvm-strip" + suffix)), "--strip-unneeded", str(candidate)], check=True)
+        # 同一 NDK 的 Windows/Linux 编译器说明不同；移除非运行时元数据，执行代码保持原样。
+        subprocess.run([str(tools / ("llvm-strip" + suffix)), "--strip-unneeded", "--remove-section=.comment", str(candidate)], check=True)
         subprocess.run([str(tools / ("llvm-readelf" + suffix)), "--program-headers", "--wide", str(candidate)], check=True)
         content = candidate.read_bytes()
         if check:

@@ -26,6 +26,8 @@ jobs:
           sdkmanager "ndk;$ndk"
           python3 tools/native-session/build.py --ndk "$ANDROID_HOME/ndk/$ndk" --output app/build/native-candidate/libdsha-session.so
           python3 tools/native-session/build.py --ndk "$ANDROID_HOME/ndk/$ndk" --output app/build/native-candidate/libdsha-session.so --check
+          "$ANDROID_HOME/ndk/$ndk/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip" --strip-unneeded --remove-section=.comment -o app/build/native-candidate/retained-canonical.so app/src/main/jniLibs/arm64-v8a/libdsha-session.so
+          cmp app/build/native-candidate/libdsha-session.so app/build/native-candidate/retained-canonical.so
           cp "$ANDROID_HOME/ndk/$ndk/source.properties" app/build/native-candidate/ndk-source.properties
           sha256sum app/build/native-candidate/libdsha-session.so tools/native-session/session-launcher.c > app/build/native-candidate/source-and-binary.sha256
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4

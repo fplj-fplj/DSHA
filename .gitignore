@@ -42,3 +42,17 @@ scr_backup.png
 # 本机工具状态与服务器取证，不进入公开仓库
 .zcode/
 website-evidence/
+
+# 历史审计原件保留本机；只发布文档和构建消费的九项元数据。
+docs/audits/**
+!docs/audits/**/
+!docs/audits/**/*.md
+!docs/audits/build154/retired-audit-sources.json
+!docs/audits/build154/engineering-retired-sources.json
+!docs/audits/build156/retired-test-control-sources.json
+!docs/audits/build156/third-party-license-sources.json
+!docs/audits/build156/retired-asset-sources.json
+!docs/audits/build156/retired-environment-data-sources.json
+!docs/audits/build154/history-document-sources.json
+!docs/audits/build156/shellservice-source-provenance.json
+!docs/audits/build156/source-docs-retained.json

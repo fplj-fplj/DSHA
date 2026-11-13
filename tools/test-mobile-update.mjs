@@ -26,7 +26,9 @@ test('3.2.1 固定上游 bundle 保留 DSHA 移动端入口与头部让位', () 
   assert.equal(packageJson.dshaUpstream.releaseCommit, '1844bf21db47a9b942275b8118988e3f6718cf4b');
   assert.notEqual(packageJson.dshaUpstream.commit, packageJson.dshaUpstream.releaseCommit);
   for (const marker of [
-    'DSHA_SESSION_INPUT_V3',
+    'DSHA_SESSION_INPUT_V4',
+    'DSHA_SESSION_INTERACTION_V4',
+    'dsha-session-open',
     '[data-dsha-session-select]',
     'dsha-preset-header-anchor',
     'data-mobile-nav="file-upload"',
@@ -45,6 +47,7 @@ test('3.2.1 固定上游 bundle 保留 DSHA 移动端入口与头部让位', () 
     'transform: rotate(180deg) !important',
   ]) assert.ok(source.includes(marker), marker);
   for (const stale of [
+    'DSHA_SESSION_INPUT_V3',
     'dsh_client_ui_primitives_1.IconPanelLeftOutline16',
     'dsh_client_ui_primitives_1.IconFolderOpenOutline16',
     'dsh_client_ui_primitives_1.IconDownloadOutline16',

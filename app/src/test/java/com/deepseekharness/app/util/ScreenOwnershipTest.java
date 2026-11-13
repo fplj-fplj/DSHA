@@ -225,28 +225,33 @@ public class ScreenOwnershipTest {
     var pool = Executors.newFixedThreadPool(16);
     var futures = new java.util.ArrayList<java.util.concurrent.Future<Integer>>();
     try {
-      for (int i = 0; i < 16; i++)
+      for (int i = 0; i < 16; i++) {
+        AtomicBoolean firstCheck = new AtomicBoolean(true);
         futures.add(
             pool.submit(
                 () ->
                     serial.execute(
                         () -> {
-                          entered.countDown();
+                          // 执行器在加锁前后都会校验；每个请求只登记一次容量占用。
+                          if (firstCheck.compareAndSet(true, false)) entered.countDown();
                           return true;
                         },
                         () -> 100,
                         10_000,
                         () -> {
-                          assertTrue(release.await(2, TimeUnit.SECONDS));
+                          release.await();
                           return writes.incrementAndGet();
                         })));
+      }
       assertTrue(entered.await(2, TimeUnit.SECONDS));
+      assertEquals(0, writes.get());
       try {
         serial.execute(() -> true, () -> 100, 10_000, writes::incrementAndGet);
         fail("queue overflow ran");
       } catch (ScreenSerialExecutor.Refused refused) {
         assertEquals("SCREEN_QUEUE_FULL", refused.code);
       }
+      assertEquals(0, writes.get());
       release.countDown();
       for (var future : futures) future.get(2, TimeUnit.SECONDS);
       assertEquals(16, writes.get());

@@ -53,6 +53,13 @@ jobs:
           --only test-dsha-ui-regressions.py --only test-architecture-boundaries.py
           --only test-bridge-token-transport.py --only test-runtime-input-contract.py
           --only test-runtime-descriptor-inputs.py --only test-native-consent-transport.mjs
+      - name: Restore verified inputs for real managed-runtime tests
+        run: >-
+          python3 tools/ci-assets.py
+          --url https://github.com/fplj-fplj/DSHA/releases/download/build-inputs-20261113/dsha-locked-inputs-20261113.zip
+          --sha256 6f6d18d8013c0ed4d1eb274f266cc11c30119e33b928dbaca542ab4b22ad1465
+      - name: Prepare current managed-runtime test fixture
+        run: python3 tools/prepare-test-runtime.py
       - name: Android Java and both flavor unit tests without offline package generation
         run: |
           platform=$(python3 tools/ci-toolchain.py --field androidPlatform)

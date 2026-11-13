@@ -189,16 +189,43 @@ public class AdbWheelPathsTest {
     File link = new File(data, "files/linux/ubuntu/root/.dsh");
     for (String target :
         new String[] {
-          "/sdcard/Documents/dshdata",
-          "../sdcard/dshdata",
-          "/data/user/0/other.app/files/data",
-          new File(data.getParentFile(), "other-app").getPath()
+          "/sdcard/Documents/dshdata", "../sdcard/dshdata", "/data/user/0/other.app/files/data"
         }) {
+      fs.links.put(link, target);
+      assertThrows(target, IOException.class, () -> bind(fs, data));
+    }
+    // Windows 宿主盘符不属于 guest 绝对路径；POSIX /tmp 路径按 DocumentPaths 合同在 guest 内解析。
+    if (File.separatorChar != '/') {
+      String target = new File(data.getParentFile(), "other-app").getPath();
       fs.links.put(link, target);
       assertThrows(target, IOException.class, () -> bind(fs, data));
     }
     assertFalse(new File(link, "wheels").exists());
     assertFalse(new File(data, "files/linux/ubuntu/sdcard").exists());
+  }
+
+  @Test
+  public void posixAbsoluteLinksResolveInsideGuestAndNeverWriteTheHost() throws Exception {
+    org.junit.Assume.assumeTrue(File.separatorChar == '/');
+    File data = data();
+    File foreign = temporary.newFolder("other-app").getCanonicalFile();
+    File sentinel = new File(foreign, "sentinel");
+    byte[] original = "foreign data".getBytes(java.nio.charset.StandardCharsets.UTF_8);
+    Files.write(sentinel.toPath(), original);
+    StrictFs fs = new StrictFs();
+    fs.links.put(new File(data, "files/linux/ubuntu/root/.dsh"), foreign.getPath());
+    var paths = bind(fs, data);
+    assertEquals(new File(paths.rootfs, foreign.getPath().substring(1)), paths.home);
+    assertTrue(DocumentPaths.within(paths.rootfs, paths.wheels));
+    String relative = paths.wheels.getPath().substring(paths.files.getPath().length() + 1);
+    fs.parents(paths.files, relative + "/probe.whl");
+    File wheel = new File(paths.wheels, "probe.whl");
+    try (OutputStream out = fs.create(wheel)) {
+      out.write(7);
+    }
+    paths.verify();
+    assertArrayEquals(original, Files.readAllBytes(sentinel.toPath()));
+    assertFalse(new File(foreign, "wheels").exists());
   }
 
   @Test

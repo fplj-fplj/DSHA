@@ -283,6 +283,12 @@ def valid_vscreen_identity(value):
 
 
 def execute(plan, shell, result_class):
+    if isinstance(plan, dict) and plan.get('version') == 1 and plan.get('kind') == 'SHELL':
+        command = plan.get('command')
+        if (not isinstance(command, str) or not command.strip() or '\0' in command
+                or plan.get('argv') != ['sh', '-c', command]):
+            raise Blocked('INVALID_SHELL_COMMAND')
+        return shell(command)
     if not isinstance(plan, dict) or plan.get('version') != 1 or plan.get('kind') not in ('READ', 'FILE', 'STOP', 'VIRTUAL_SCREEN'):
         raise Blocked('原生设备策略没有授权此操作')
     if plan['kind'] == 'VIRTUAL_SCREEN':

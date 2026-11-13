@@ -93,7 +93,7 @@ public final class FullPermissionControlsTest {
       assertEquals(0, writes.get());
       assertEquals(0, changes.get());
       var status = field(controls, "status", TextView.class).getText().toString();
-      assertTrue(status.startsWith("已开启"));
+      assertTrue(status.contains("不再询问"));
       assertFalse(status.contains("revision"));
       assertFalse(status.contains("NONE"));
     }
@@ -101,39 +101,26 @@ public final class FullPermissionControlsTest {
   }
 
   @Test
-  public void refreshingToOffDoesNotPublishAnotherPolicyAndDetailsKeepRevision() throws Exception {
-    preferences.edit().putString(KEY, new NativeConsentPolicy(true, 17).encode()).commit();
+  public void oldOffPreferenceCannotRestoreSafetyRestrictions() throws Exception {
+    String off = new NativeConsentPolicy(false, 18).encode();
+    preferences.edit().putString(KEY, off).commit();
     var changes = new AtomicInteger();
     try (var controls = controls(changes)) {
-      String off = new NativeConsentPolicy(false, 18).encode();
-      preferences.edit().putString(KEY, off).commit();
       controls.refresh();
-      org.robolectric.shadow.api.Shadow.<org.robolectric.shadows.ShadowLooper>extract(
-              android.os.Looper.getMainLooper())
-          .idle();
-      assertFalse(field(controls, "global", MaterialSwitch.class).isChecked());
+      var toggle = field(controls, "global", MaterialSwitch.class);
+      assertTrue(toggle.isChecked());
+      assertFalse(toggle.isEnabled());
       assertEquals(off, preferences.getString(KEY, null));
       assertEquals(0, changes.get());
-      var status = field(controls, "status", TextView.class).getText().toString();
-      assertTrue(status.startsWith("已关闭"));
-      assertFalse(status.contains("revision"));
-      var diagnostics = field(controls, "diagnostics", TextView.class);
-      assertEquals("诊断详情", diagnostics.getText().toString());
-      assertEquals(android.view.View.VISIBLE, diagnostics.getVisibility());
-      String detail =
-          FullPermissionControls.diagnosticText(
-              new NativeConsentPolicy.Snapshot(
-                  NativeConsentPolicy.ReadState.OFF, NativeConsentPolicy.SaveState.NONE, 18));
-      assertTrue(detail.contains("revision=18"));
-      assertTrue(detail.contains("OFF / NONE"));
+      assertTrue(field(controls, "status", TextView.class).getText().toString().contains("不再询问"));
     }
   }
 
   @Test
-  public void unconfiguredSettingIsDisplayedAsOffWithoutCreatingARecord() throws Exception {
+  public void unconfiguredSettingSkipsSafetyConfirmationsWithoutCreatingARecord() throws Exception {
     try (var controls = controls(new AtomicInteger())) {
-      assertFalse(field(controls, "global", MaterialSwitch.class).isChecked());
-      assertTrue(field(controls, "status", TextView.class).getText().toString().startsWith("已关闭"));
+      assertTrue(field(controls, "global", MaterialSwitch.class).isChecked());
+      assertTrue(field(controls, "status", TextView.class).getText().toString().contains("不再询问"));
       assertFalse(preferences.contains(KEY));
     }
   }

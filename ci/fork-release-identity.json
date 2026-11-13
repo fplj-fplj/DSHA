@@ -1,0 +1,12 @@
+{
+  "schema": 1,
+  "packageName": "dsh.android.client",
+  "certificateSha256": "d94a0ba027c1be34f2a9c4d0319a2d2b5eed784bd47f235f2c33951207c16d26",
+  "alias": "dsha-authorized",
+  "schemes": [
+    "v1",
+    "v2",
+    "v3"
+  ],
+  "upstreamCertificateSha256": "e7e3a31a75946f2669194c972b3dd0c9aea3fc7c50a8b885d2dee710b22a53f5"
+}

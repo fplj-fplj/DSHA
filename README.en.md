@@ -1,5 +1,7 @@
 # DSHA
 
+> **fplj-fplj user-authorized build (2026-11-13):** DSHA safety confirmations, generic device-command allowlists and bridge file-directory restrictions are removed. Package identity stays `dsh.android.client`. Standard and Low builds are produced by this repository’s Actions. This fork has a fixed independent signing certificate and cannot update an upstream E7E3-signed installation. Export data before migration. The upstream downloads and acceptance records below describe the original build.
+
 <p align="center">
   <b>DeepSeek Harness launcher for Android</b><br>
   Run the full <a href="https://github.com/deepseek-ai/deepseek-harness">deepseek-harness</a> on your phone — no root, no Termux, nothing to type

@@ -202,13 +202,8 @@ class NotificationClickable(unittest.TestCase):
         body = re.search(r'private String appNotify\(String path\)\s*\{(.*?)\n    \}', self.shell, re.S).group(1)
         self.assertIn('ForegroundActivity.current()', body)
 
-class BridgeCredentialProtection(unittest.TestCase):
-    """3090 桥不得把凭据导出/读取到公共目录。
-
-    真机实测过的攻击链：/app/export?path=/root/.dsh/.bridge_token
-    → 文件落到 /sdcard/Download/DSHA/（任何 App 可读）
-    → 同机任意应用拿到桥 token → 完全接管 3090 桥。
-    """
+class AuthorizedBridgeFileAccess(unittest.TestCase):
+    """用户授权版移除桥目录拒绝，文件快照与真实权限处理保持完整。"""
 
     def setUp(self):
         self.shell = read('app/src/main/java/com/deepseekharness/app/HttpShellService.java')
@@ -216,18 +211,18 @@ class BridgeCredentialProtection(unittest.TestCase):
     def test_export_checks_path_policy(self):
         body = re.search(r'private String appExport\(String path\)\s*\{(.*?)\n    \}', self.shell, re.S)
         self.assertIsNotNone(body, "找不到 appExport")
-        self.assertIn('BridgePathPolicy.denied(', body.group(1),
-                      "/app/export 必须先过凭据路径判据")
+        self.assertNotIn('BridgePathPolicy.denied(', body.group(1))
+        self.assertIn('BridgeFileSnapshot.copy(', body.group(1))
 
     def test_readfile_checks_path_policy(self):
         body = re.search(r'private String appReadFile\(String path\)\s*\{(.*?)\n    \}', self.shell, re.S)
         self.assertIsNotNone(body, "找不到 appReadFile")
-        self.assertIn('BridgePathPolicy.denied(', body.group(1),
-                      "/app/readfile 必须先过凭据路径判据")
+        self.assertNotIn('BridgePathPolicy.denied(', body.group(1))
+        self.assertIn('fs.read(', body.group(1))
 
     def test_canonical_recheck_defeats_symlink(self):
         # 只看字符串不够：容器里可先建软链接指向凭据
-        self.assertIn('exportDeniedByCanonical', self.shell)
+        self.assertNotIn('exportDeniedByCanonical', self.shell)
         self.assertIn('getCanonicalPath()', self.shell)
 
     def test_canonical_recheck_does_not_blanket_deny_rootfs(self):
@@ -242,8 +237,9 @@ class BridgeCredentialProtection(unittest.TestCase):
         for needle in ['"/root/.dsh"', '"/root/.android"', '"/root/.ssh"', '"/root/.dsha-"']:
             self.assertIn(needle, src, "凭据路径缺失：" + needle)
 
-    def test_help_text_mentions_the_limit(self):
-        self.assertIn('凭据区', self.shell, "端点清单要说明凭据区不可读/不可导出")
+    def test_help_text_reports_authorized_execution(self):
+        self.assertIn('用户已授权本版移除 DSHA 安全确认与设备命令白名单', self.shell)
+        self.assertNotIn('凭据区不可导出', self.shell)
 
 
 class BackupLocalCredentialProtection(unittest.TestCase):

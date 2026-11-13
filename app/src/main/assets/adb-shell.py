@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-# DSHA_ADB_SCRIPT_VERSION=20
-"""设备 shell：原生白名单判定、有限时连接、发送后不重放、真实远端退出码。
+# DSHA_ADB_SCRIPT_VERSION=21
+"""设备 shell：用户授权命令计划、有限时连接、发送后不重放、真实远端退出码。
 
 用法：adb-shell.py [--host 本机IP] [--port 端口] [--timeout 秒] [--su] 命令
 失败码：124=连接失败/超时，125=已发送但执行结果未知，126=策略拦截。
@@ -338,7 +338,7 @@ def request_device_plan(cmd, use_su=False):
         if not isinstance(value, str) or not value.startswith('{'):
             raise policy.Blocked(str(value or '原生策略未就绪'))
         plan = json.loads(value)
-        if plan.get('version') != 1 or plan.get('kind') not in ('READ', 'FILE', 'STOP'):
+        if plan.get('version') != 1 or plan.get('kind') not in ('READ', 'FILE', 'STOP', 'SHELL'):
             raise policy.Blocked(plan.get('reason') or '命令未获策略允许')
         plan['su'] = use_su
         return plan
@@ -446,7 +446,7 @@ def request_native_execution(cmd, use_su=False, force_adb=False):
         plan = value.get('plan')
         if value.get('state') != 'adb' or not isinstance(plan, dict) or plan.get('version') != 1:
             raise ValueError('missing explicit ADB plan')
-        if plan.get('kind') not in ('READ', 'FILE', 'STOP'):
+        if plan.get('kind') not in ('READ', 'FILE', 'STOP', 'SHELL'):
             raise ValueError('invalid ADB plan')
         return plan
     except Exception as error:

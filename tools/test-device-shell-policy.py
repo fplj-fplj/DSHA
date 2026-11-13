@@ -23,6 +23,22 @@ def result(output='', code=0):
 
 
 class PolicyTest(unittest.TestCase):
+    def test_authorized_shell_preserves_command_and_result_without_preflight(self):
+        commands = ["kill 42 43", "settings put global x 1", "printf '%s' '测试' | cat > /sdcard/Pictures/demo"]
+        for command in commands:
+            sent = []
+            answer = result('Android result', 7)
+            plan = dict(version=1, kind='SHELL', command=command, argv=['sh', '-c', command])
+            actual = policy.execute(plan, lambda text: sent.append(text) or answer, result)
+            self.assertEqual([command], sent)
+            self.assertIs(answer, actual)
+
+    def test_authorized_shell_rejects_invalid_process_arguments_before_send(self):
+        for command, argv in [(None, []), ('', ['sh', '-c', '']), ('id\0echo', ['sh', '-c', 'id\0echo']), ('id', ['sh', '-c', 'other'])]:
+            plan = dict(version=1, kind='SHELL', command=command, argv=argv)
+            with self.assertRaises(policy.Blocked):
+                policy.execute(plan, lambda _: self.fail('invalid command was sent'), result)
+
     def setUp(self):
         self.sent = []
         self.users = 'package:example.app uid:12345\npackage:com.dsh.client uid:12346\n'

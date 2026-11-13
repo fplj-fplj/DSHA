@@ -8,7 +8,7 @@ import java.io.IOException;
 import java.util.Arrays;
 import java.util.List;
 
-/** 设备 shell 的执行前守卫。调用者不能通过确认开关、root 或内部标志跳过判定。 */
+/** 用户授权的设备 shell；通用入口不再套用历史命令、路径和应用白名单。 */
 public final class DeviceShellExecutor {
   private DeviceShellExecutor() {}
 
@@ -22,54 +22,10 @@ public final class DeviceShellExecutor {
 
   static String execute(
       String command, Runner runner, com.deepseekharness.app.util.SelfPackageIdentity identity) {
-    DeviceShellPolicy.Plan plan = DeviceShellPolicy.inspect(command);
-    if (!plan.allowed()) return plan.reason + "\n[EXIT=126]";
-    // UserService 不持有 App 的授权记录；短信必须先经过原生授权桥再走 ADB。
-    if (plan.kind == DeviceShellPolicy.Kind.SENSITIVE_READ)
-      return com.deepseekharness.app.util.UiText.text(
-          "[POLICY_BLOCKED] 短信读取请使用 ADB 通道，并在 DSHA 授权\n[EXIT=126]");
     try {
-      int uid = android.os.Process.myUid();
-      if (uid == 0 || uid == 2000) validateRootReadPaths(plan);
-      if (plan.kind == DeviceShellPolicy.Kind.STOP) {
-        if (identity == null) throw new IOException("SELF_PACKAGE_UNVERIFIED");
-        String users = checked(runner.run(Arrays.asList("pm", "list", "packages", "-U", "-3")));
-        String systems = checked(runner.run(Arrays.asList("pm", "list", "packages", "-U", "-s")));
-        DeviceAppPolicy.Snapshot snapshot = DeviceAppPolicy.snapshot(users, systems, identity.name);
-        String processes =
-            plan.command().equals("kill")
-                ? checked(runner.run(Arrays.asList("ps", "-A", "-o", "PID,UID,NAME")))
-                : "";
-        final List<String> targets;
-        try {
-          targets = snapshot.targets(plan, processes);
-        } catch (IllegalArgumentException blocked) {
-          return snapshot.grouped() + "[POLICY_BLOCKED] " + blocked.getMessage() + "\n[EXIT=126]";
-        }
-        StringBuilder output = new StringBuilder(snapshot.grouped());
-        for (String target : targets) {
-          // 按包名操作，避免检查完 PID 后号码复用而误伤系统进程。
-          String result = runner.run(Arrays.asList("am", "force-stop", target));
-          output
-              .append(com.deepseekharness.app.util.UiText.text("停止用户应用："))
-              .append(target)
-              .append('\n')
-              .append(result)
-              .append('\n');
-          if (!result.endsWith("[EXIT=0]")) break;
-        }
-        return output.toString().trim();
-      }
-      if (plan.kind == DeviceShellPolicy.Kind.FILE) {
-        com.deepseekharness.app.util.DeviceFileOperations.execute(
-            plan, new com.deepseekharness.app.bridge.AndroidDeviceFiles());
-        return "DEVICE_FILE_OPERATION_COMPLETE\n[EXIT=0]";
-      }
-      return runner.run(plan.argv);
-    } catch (java.io.InterruptedIOException cancelled) {
-      return "[EXECUTION_UNKNOWN] FILE_OPERATION_CANCELLED\n[EXIT=125]";
-    } catch (IOException | IllegalArgumentException error) {
-      return "[POLICY_BLOCKED] " + SensitiveData.redact(error.getMessage()) + "\n[EXIT=126]";
+      return runner.run(com.deepseekharness.app.util.AuthorizedDeviceShell.argv(command));
+    } catch (IllegalArgumentException error) {
+      return "[INVALID_ARGUMENT] " + SensitiveData.redact(error.getMessage()) + "\n[EXIT=2]";
     }
   }
 

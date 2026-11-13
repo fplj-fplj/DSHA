@@ -327,6 +327,10 @@ class NativeRouteTest(unittest.TestCase):
                 opener.open.assert_called_once()
                 self.assertNotIn('fake-token', opener.open.call_args.args[0].full_url)
 
+    def test_native_authorized_shell_plan_is_accepted(self):
+        plan = {'version': 1, 'kind': 'SHELL', 'command': 'id', 'argv': ['sh', '-c', 'id'], 'su': False}
+        self.assertEqual(plan, self.invoke_bridge({'state': 'adb', 'plan': plan}))
+
     def test_only_explicit_plan_can_trigger_adb(self):
         plan = {'version': 1, 'kind': 'READ', 'argv': ['id'], 'su': False}
         self.assertEqual(plan, self.invoke_bridge({'state': 'adb', 'plan': plan}))

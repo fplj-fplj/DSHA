@@ -1,0 +1,16 @@
+# DSHA 用户授权版 · 2026-11-13
+
+本版按用户要求，以 `/home/dshafix` 的完整 build190 项目替换 `fplj-fplj/DSHA` 的旧源码，并移除 DSHA 自行附加的安全拦截。
+
+- 设备命令：Root、Shizuku 和 ADB 通用入口执行原始 shell 命令，支持未知命令、脚本、管道、重定向、系统设置、应用管理、文件写入与进程操作。旧白名单、受保护目录和系统应用拒绝规则不再参与通用执行。
+- 原生确认：已标记的 DSHA 安全确认不再弹窗，屏幕操作免确认，正式 Web 的原生确认接口反映全局允许。需要填写内容、选择范围或保存位置的业务弹窗继续等待用户输入。
+- 文件能力：已鉴权的读取、导出、分享接口移除凭据目录与外部存储目录拒绝；实际读取/写入权限由 Android 执行。
+- Android 系统权限、Root 管理器授权、Shizuku 授权、ADB 配对与连接仍需在手机授予；取消 DSHA 拦截不会创造系统权限。屏幕操作暂停/停止、运行代次与目标身份核验、数据完整性/备份事务继续生效。
+
+应用包名保持 `dsh.android.client`，versionCode 190，诊断版本 `0.2.1-rc.2-20261113.1630-authorized-dsh0.2.1-rc.2`。Standard 支持 Android 11+，Low 支持 Android 6+，均为 arm64、非调试 Release。
+
+本仓库的固定签名证书 SHA-256：`d94a0ba027c1be34f2a9c4d0319a2d2b5eed784bd47f235f2c33951207c16d26`。它与上游 E7E3 证书不同，Android 因此不允许直接覆盖上游旧包。迁移请先导出需要保留的数据；后续本仓库同签名版本可以覆盖升级。签名私钥保存在本机独立目录和本仓库 Actions Secrets，不进入 Git 或公开附件。
+
+构建流程执行完整离线输入摘要核验、原生输入核验、两版 JUnit、两版 Release Lint、实际 APK 资产/许可/ELF 检查，然后签名并再次检查包名、版本、非调试属性、证书和 v1/v2/v3 签名。APK、校验码与 `build-receipt.json` 绑定实际源码 commit 并附在本仓库 Release。检查结果以对应 Actions 运行和回执为准，不用旧版报告代替本版验证。本轮没有设备安装、启停或真机验收。
+
+固定离线输入附件 SHA-256：`6f6d18d8013c0ed4d1eb274f266cc11c30119e33b928dbaca542ab4b22ad1465`，原始大构建输入走 [专用 Release](https://github.com/fplj-fplj/DSHA/releases/tag/build-inputs-20261113)，不进入 Git。Git 提供项目源码、工具、锁文件和构建依赖；原始仓库历史保留，旧树中本地项目没有的文件已删除。

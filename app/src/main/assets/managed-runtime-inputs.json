@@ -645,7 +645,8 @@
     "LanAuth.java",
     "util/SocketDispatch.java",
     "util/LanNetworkState.java",
-    "util/DeepSeekOAuthNavigation.java"
+    "util/DeepSeekOAuthNavigation.java",
+    "util/AuthorizedDeviceShell.java"
   ],
   "generatorSources": [
     "tools/mobile-server/compress.js",

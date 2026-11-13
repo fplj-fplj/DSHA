@@ -1,0 +1,83 @@
+name: Build user-authorized DSHA
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: authorized-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Verify source toolchain
+        id: toolchain
+        run: python3 tools/ci-toolchain.py --github-output
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
+        with:
+          distribution: temurin
+          java-version: ${{ steps.toolchain.outputs.java }}
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: ${{ steps.toolchain.outputs.node }}
+      - name: Check available storage
+        run: |
+          df -h .
+          python3 -c 'import shutil; assert shutil.disk_usage(".").free >= 5 * 1024**3'
+      - name: Restore verified original offline inputs
+        run: >-
+          python3 tools/ci-assets.py
+          --url https://github.com/fplj-fplj/DSHA/releases/download/build-inputs-20261113/dsha-locked-inputs-20261113.zip
+          --sha256 6f6d18d8013c0ed4d1eb274f266cc11c30119e33b928dbaca542ab4b22ad1465
+      - name: Android SDK and NDK
+        run: |
+          sdkmanager "platforms;${{ steps.toolchain.outputs.androidPlatform }}" "build-tools;${{ steps.toolchain.outputs.buildTools }}" "ndk;${{ steps.toolchain.outputs.ndk }}"
+      - name: Verify full source and native input contracts
+        run: |
+          python3 tools/prepare-runtime-descriptor.py --check
+          python3 tools/verify-runtime-descriptor-source.py
+          python3 tools/check-source-hygiene.py
+          python3 tools/check-ui-i18n.py
+          python3 tools/generate-third-party-notices.py --check
+          python3 tools/check-third-party-notices.py --archive app/src/main/assets/dsh-runtime.bin
+          python3 tools/native-session/build.py --ndk "$ANDROID_HOME/ndk/${{ steps.toolchain.outputs.ndk }}" --check
+      - name: Prepare current host fixture
+        run: python3 tools/prepare-test-runtime.py
+      - name: Both flavors, unit tests, release lint and complete unsigned APK checks
+        run: python3 tools/verify-stability.py --stage package --java-home "$JAVA_HOME" --sdk "$ANDROID_HOME"
+      - name: Sign and verify APKs with fixed fork certificate
+        env:
+          KEY_BASE64: ${{ secrets.DSHA_FORK_KEYSTORE_BASE64 }}
+          DSHA_FORK_STORE_PASSWORD: ${{ secrets.DSHA_FORK_STORE_PASSWORD }}
+        run: |
+          umask 077
+          export DSHA_FORK_KEYSTORE="$RUNNER_TEMP/dsha-fork.p12"
+          trap 'rm -f -- "$DSHA_FORK_KEYSTORE"' EXIT
+          printf '%s' "$KEY_BASE64" | base64 --decode > "$DSHA_FORK_KEYSTORE"
+          python3 tools/sign-fork-apks.py --output app/build/authorized-release
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: DSHA-authorized-build-and-reports
+          path: |
+            app/build/authorized-release
+            app/build/stability-acceptance
+          if-no-files-found: error
+          retention-days: 30
+      - name: Publish verified packages
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="authorized-20261113-${GITHUB_SHA:0:12}"
+          gh release create "$tag" app/build/authorized-release/* --target "$GITHUB_SHA" --title "DSHA 用户授权版 2026-11-13" --notes-file docs/releases/user-authorized-20261113.md --latest
+      - name: Check remaining storage
+        if: always()
+        run: |
+          df -h .
+          python3 -c 'import shutil; assert shutil.disk_usage(".").free >= 5 * 1024**3'

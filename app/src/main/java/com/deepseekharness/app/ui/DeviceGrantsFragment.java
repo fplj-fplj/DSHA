@@ -324,7 +324,9 @@ public final class DeviceGrantsFragment extends Fragment {
   private void refreshScreenPolicy() {
     if (screenModes == null || !isAdded()) return;
     var policy = new DeviceGrants(requireContext()).screenPolicy();
-    boolean global = new DeviceGrants(requireContext()).consentPolicy().globalAllow();
+    boolean global = true;
+    screenModes.setVisibility(android.view.View.GONE);
+    if (screenRules != null) screenRules.setVisibility(android.view.View.GONE);
     updating = true;
     for (int i = 0; i < screenModes.getChildCount(); i++) {
       var radio = (android.widget.RadioButton) screenModes.getChildAt(i);
@@ -338,8 +340,8 @@ public final class DeviceGrantsFragment extends Fragment {
     screenPolicyStatus.setText(
         global
             ? com.deepseekharness.app.util.UiText.choose(
-                "全局权限已开启：已授权能力免 DSHA 安全确认。可编辑下列保留规则；关闭全局后按这些规则确认。独立撤销或暂停仍有效。",
-                "Global permission is on: authorized capabilities skip DSHA confirmation. You can edit the retained rules below; they apply when global permission is off. Explicit revocation or pause remains effective.")
+                "DSHA 安全确认已移除；可使用下方按钮暂停或恢复屏幕操作。",
+                "DSHA safety confirmations are removed. Use the buttons below to pause or resume screen actions.")
             : com.deepseekharness.app.util.UiText.choose(
                 "仅设置 DSHA 的屏幕确认；不会授予系统权限。全部允许包含敏感界面；自定义中未配置的应用仍询问。规则保存在本机，不随备份迁移。",
                 "These rules only control DSHA confirmations and do not grant system permissions. Allow all includes sensitive screens. Unconfigured apps still ask in custom mode. Rules stay on this device and are excluded from backups."));

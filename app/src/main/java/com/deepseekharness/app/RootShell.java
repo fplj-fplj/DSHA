@@ -36,7 +36,11 @@ public final class RootShell {
         return com.deepseekharness.app.util.UiText.format("su：%s\n尚未验证 root 授权", current);
       return switch (status) {
         case RESPONDED ->
-            com.deepseekharness.app.util.UiText.format("su：%s\nroot 通道已响应 · 设备命令仍受策略保护", current);
+            com.deepseekharness.app.util.UiText.format(
+                com.deepseekharness.app.util.UiText.choose(
+                    "su：%s\nroot 通道已响应 · 执行用户授权命令",
+                    "su: %s\nRoot channel responded; user-authorized commands are enabled"),
+                current);
         case TIMED_OUT ->
             com.deepseekharness.app.util.UiText.format(
                 "su：%s\nroot 授权或执行超时，请在 root 管理器查看 DSHA 授权", current);
@@ -91,13 +95,7 @@ public final class RootShell {
     if (!enabled(ctx))
       return com.deepseekharness.app.util.UiText.text(
           "[POLICY_BLOCKED] 未允许 root shell\n[EXIT=126]");
-    DeviceShellPolicy.Plan plan = DeviceShellPolicy.inspect(command);
-    if (!plan.allowed()) return plan.reason + "\n[EXIT=126]";
-    if (plan.kind == DeviceShellPolicy.Kind.SENSITIVE_READ
-        && (authorizedSmsUser < 0
-            || !new com.deepseekharness.app.core.DeviceGrants(ctx).smsReadAllowed()))
-      return com.deepseekharness.app.util.UiText.text("[POLICY_BLOCKED] 短信读取尚未经过原生授权\n[EXIT=126]");
-    return runPrivileged(ctx, command, authorizedSmsUser, "");
+    return runPrivileged(ctx, command, -1, "");
   }
 
   /** Native-only launcher path. Generic RootShell.exec rejects app_process unconditionally. */

@@ -38,53 +38,18 @@ public final class DevicePolicyAudit extends Instrumentation {
     Fixture fixture = null;
     try {
       check(BuildConfig.DEBUG, "仅限调试包");
-      ShellService service = new ShellService(1000);
-      for (String command :
-          new String[] {
-            "rm -rf /",
-            "touch /sdcard/Pictures/x",
-            "mkdir /system/x",
-            "dd if=/dev/zero of=/dev/block/x",
-            "mkfs.ext4 /dev/block/x",
-            "fdisk -l",
-            "parted /dev/block/x print",
-            "setenforce 0",
-            "chcon -R x /data",
-            "restorecon -R /data",
-            "settings put global x 1",
-            "setprop persist.x 1",
-            "mount -o remount,rw /system",
-            "umount /data",
-            "fastboot erase userdata",
-            "flash boot x",
-            "format data",
-            "wipe data",
-            "unknown",
-            "sh -c id",
-            "rmdir -p /data/local/tmp/x"
-          }) check(service.exec(command).contains("[POLICY_BLOCKED]"), "Binder 入口拦截：" + command);
-      check(service.exec("cat /proc/self/status").contains("Name:"), "Binder 实际读取系统目录");
       List<List<String>> sent = new ArrayList<>();
       DeviceShellExecutor.Runner spy =
           argv -> {
             sent.add(new ArrayList<>(argv));
-            if (argv.get(0).equals("pm"))
-              return argv.contains("-3")
-                  ? "package:example.app uid:12345\n[EXIT=0]"
-                  : "package:android uid:1000\n[EXIT=0]";
-            if (argv.get(0).equals("ps"))
-              return "PID UID NAME\n42 12345 example.app\n43 1000 system_server\n[EXIT=0]";
             return "[EXIT=0]";
           };
-      check(DeviceShellExecutor.execute("kill 42", spy).contains("停止用户应用：example.app"), "PID 转为包名");
-      check(
-          sent.get(sent.size() - 1)
-              .equals(java.util.Arrays.asList("am", "force-stop", "example.app")),
-          "只停止明确应用");
-      sent.clear();
-      check(
-          DeviceShellExecutor.execute("kill 42 43", spy).contains("[POLICY_BLOCKED]"), "混合批次全部拒绝");
-      check(sent.stream().noneMatch(a -> a.get(0).equals("am")), "拒绝批次未提前执行普通应用停止");
+      for (String command :
+          new String[] {"rm -rf /", "settings put global x 1", "kill 42 43", "sh -c id"}) {
+        sent.clear();
+        check(DeviceShellExecutor.execute(command, spy).endsWith("[EXIT=0]"), "授权命令计划：" + command);
+        check(sent.equals(List.of(List.of("sh", "-c", command))), "原文仅交给测试替身一次");
+      }
       check(!HttpShellService.isReady() && !HttpShellService.isStarting(), "不能占用现有设备桥");
       fixture =
           new Fixture(

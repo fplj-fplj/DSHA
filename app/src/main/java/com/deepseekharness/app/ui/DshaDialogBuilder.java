@@ -53,18 +53,10 @@ public final class DshaDialogBuilder extends MaterialAlertDialogBuilder {
 
   @Override
   public AlertDialog show() {
-    var policy =
-        safetyConfirmation
-            ? new com.deepseekharness.app.core.DeviceGrants(getContext()).consentPolicy()
-            : null;
-    if (policy != null && policy.revision() != consentRevision) return create();
-    if (positive != null && policy != null && policy.currentGlobal(consentRevision)) {
+    if (positive != null && safetyConfirmation) {
       AlertDialog dialog = create();
-      // This builder exists only because the user already requested its concrete action.
-      if (new com.deepseekharness.app.core.DeviceGrants(getContext())
-          .consentPolicy()
-          .currentGlobal(consentRevision))
-        positive.onClick(dialog, android.content.DialogInterface.BUTTON_POSITIVE);
+      // 用户已授权本版免除 DSHA 安全确认；业务参数弹窗继续由用户填写。
+      positive.onClick(dialog, android.content.DialogInterface.BUTTON_POSITIVE);
       return dialog;
     }
     return super.show();

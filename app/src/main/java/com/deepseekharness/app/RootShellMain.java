@@ -4,7 +4,7 @@ import android.util.Base64;
 import com.deepseekharness.app.util.SensitiveData;
 import java.nio.charset.StandardCharsets;
 
-/** 由 su 启动的短期进程；在真正的 root 身份下复用路径、应用清单与命令守卫。 */
+/** 由 su 启动的短期进程；在真正的 root 身份下执行用户授权命令。 */
 public final class RootShellMain {
   public static final String RESULT = "DSHA_ROOT_RESULT=";
 
@@ -26,11 +26,7 @@ public final class RootShellMain {
       String command = request.getString("command");
       int smsUser = request.optInt("smsUser", -1);
       String operation = request.optString("operation", "");
-      boolean identityRequired =
-          smsUser >= 0
-              || operation.equals("virtual-screen-start")
-              || com.deepseekharness.app.util.DeviceShellPolicy.inspect(command).kind
-                  == com.deepseekharness.app.util.DeviceShellPolicy.Kind.STOP;
+      boolean identityRequired = smsUser >= 0 || operation.equals("virtual-screen-start");
       ShellService shell;
       if (request.has("selfPackage") || request.has("selfUid"))
         shell =

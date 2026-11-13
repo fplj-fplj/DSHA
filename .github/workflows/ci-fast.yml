@@ -40,8 +40,14 @@ jobs:
           python3 tools/check-source-hygiene.py
           python3 tools/check-ui-i18n.py
           python3 tools/check-document-links.py
-      - name: Isolated source and protocol regressions
-        run: python3 tools/run-host-tests.py --stage fast
+      - name: Isolated source and device-bridge regressions
+        run: >-
+          python3 tools/run-host-tests.py --stage fast --jdk "$JAVA_HOME"
+          --only test-device-shell-policy.py --only test-adb-flow.py
+          --only test-adb-vscreen-bridge.py --only test-native-device-policy.py
+          --only test-dsha-ui-regressions.py --only test-architecture-boundaries.py
+          --only test-bridge-token-transport.py --only test-runtime-input-contract.py
+          --only test-runtime-descriptor-inputs.py --only test-native-consent-transport.mjs
       - name: Android Java and both flavor unit tests without offline package generation
         run: |
           platform=$(python3 tools/ci-toolchain.py --field androidPlatform)

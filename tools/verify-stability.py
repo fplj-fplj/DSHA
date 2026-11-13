@@ -270,9 +270,10 @@ def main():
                     if not target.exists():target.write_bytes(content)
         cli=pnpm/'dist/pnpm.cjs';actual=run('pnpm-version',[args.node,cli,'--version']).strip()
         if actual!=PNPM_VERSION:raise RuntimeError('Unexpected pnpm version')
+        plugin_test_environment={'DSHA_TEST_PNPM_CLI':str(cli),'DSHA_TEST_NODE':args.node}
         report['pythonTests']={}
         for suite in ('discovery','dependencies','transactions','review'):
-            log=run('plugin-'+suite,[sys.executable,'-B','tools/test-plugin-'+suite+'.py'],{'DSHA_TEST_PNPM_CLI':str(cli),'DSHA_TEST_NODE':args.node})
+            log=run('plugin-'+suite,[sys.executable,'-B','tools/test-plugin-'+suite+'.py'],plugin_test_environment)
             count=re.search(r'Ran (\d+) tests?',log);skipped=re.search(r'OK \(skipped=(\d+)\)',log)
             report['pythonTests'][suite]={'tests':int(count[1]) if count else None,'skipped':int(skipped[1]) if skipped else 0}
         if args.stage=='software':
@@ -314,7 +315,7 @@ def main():
         except (OSError,ValueError,KeyError,TypeError) as error:
             raise RuntimeError('Current managed DSH runtime fixture is unavailable; run tools/prepare-test-runtime.py: '+str(error)) from error
         run('plugin-upgrade-gate',[sys.executable,'-B','tools/verify-plugin-upgrade-gate.py',
-                                   '--managed-runtime',managed_runtime,'--raw-runtime',locked_runtime,*apks])
+                                   '--managed-runtime',managed_runtime,'--raw-runtime',locked_runtime,*apks],plugin_test_environment)
         run('recovery-apk',[sys.executable,'-B','tools/verify-recovery-apk.py',*apks])
         run('recovery-browser-overlay',[args.node,'tools/test-recovery-browser-overlay.mjs',ROOT/'app/build/generated/recoveryAssets'])
         run('web-ui-host-fixtures',[args.node,'tools/test-web-ui-host-fixtures.mjs'])

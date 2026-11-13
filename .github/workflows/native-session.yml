@@ -1,0 +1,38 @@
+name: Rebuild native session input
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  native:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3
+        with:
+          cmdline-tools-version: '13114758'
+          packages: platform-tools
+          log-accepted-android-sdk-licenses: false
+      - name: Rebuild twice with the locked NDK
+        run: |
+          ndk=$(python3 tools/ci-toolchain.py --field ndk)
+          sdkmanager "ndk;$ndk"
+          python3 tools/native-session/build.py --ndk "$ANDROID_HOME/ndk/$ndk" --output app/build/native-candidate/libdsha-session.so
+          python3 tools/native-session/build.py --ndk "$ANDROID_HOME/ndk/$ndk" --output app/build/native-candidate/libdsha-session.so --check
+          cp "$ANDROID_HOME/ndk/$ndk/source.properties" app/build/native-candidate/ndk-source.properties
+          sha256sum app/build/native-candidate/libdsha-session.so tools/native-session/session-launcher.c > app/build/native-candidate/source-and-binary.sha256
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: NATIVE-SESSION-CANDIDATE
+          path: app/build/native-candidate
+          if-no-files-found: error
+          retention-days: 14
+      - name: Verify available storage
+        run: python3 -c 'import shutil; assert shutil.disk_usage(".").free >= 5 * 1024**3'

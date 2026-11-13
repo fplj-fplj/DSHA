@@ -39,8 +39,19 @@ const uiPatch = JSON.parse(fs.readFileSync('app/src/main/assets/plugin-manager-a
 const upstreamUi = fs.readFileSync(path.join(raw, uiPath), 'utf8').replaceAll('\r\n', '\n');
 const currentUi = fs.readFileSync(path.join(managed, uiPath), 'utf8').replaceAll('\r\n', '\n');
 assert.equal(upstreamUi.split(uiPatch.before).length - 1, 1);
-assert.ok(currentUi === upstreamUi.replace(uiPatch.before, uiPatch.after),
-  'Web plugin installation must enable the installed bundle by default');
+let expectedUi = upstreamUi;
+// 当前 UI 在自动启用之后还应用配置与刷新补丁；必须核对完整的受管链。
+for (const row of active) {
+  const recipe = JSON.parse(fs.readFileSync(path.join('app/src/main/assets',row.asset),'utf8'));
+  if ((row.module ?? recipe.module) !== '@deepseek-ai/dsh-client-ui-plugin-manager/lib/client.js') continue;
+  for (const patch of recipe.patches) {
+    assert.equal(expectedUi.split(patch.before).length - 1, 1,row.asset);
+    const after = patch.prependAsset === undefined ? patch.after : fs.readFileSync(path.join('app/src/main/assets',patch.prependAsset),'utf8')+'\n'+patch.after;
+    expectedUi = expectedUi.replace(patch.before, after);
+  }
+}
+assert.ok(currentUi === expectedUi, 'Web plugin UI must match the complete pinned patch chain');
+assert.ok(currentUi.includes(uiPatch.after), 'Web plugin installation must retain automatic enablement');
 
 const { PluginManager } = await import(pathToFileURL(path.join(managed, hostPath)));
 const manager = Object.create(PluginManager.prototype);

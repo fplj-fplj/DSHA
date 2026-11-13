@@ -149,7 +149,10 @@ test('all eight signed wrappers activate with real 0.2.1 services; actual MCP an
     const passthrough=await ctx.waterfall(null,'tools/pre-execute',{name:'fixture',signal:new AbortController().signal},async()=>{next++;return {kind:'allow'};});
     assert.equal(passthrough.kind,'allow');assert.equal(next,1);assert.equal(llmRequests,0);
     const schemas=ctx.tools.schemas().map(tool=>tool.name);
-    assert.equal(schemas.filter(name=>name.startsWith('mcp__dsha-android__')).length,6);
+    assert.deepEqual(schemas.filter(name=>name.startsWith('mcp__dsha-android__')).sort(),[
+      'android_get_state','android_screenshot','android_click','android_double_click',
+      'android_long_press','android_type','android_key','android_swipe'
+    ].map(name=>'mcp__dsha-android__'+name).sort());
     assert.equal(schemas.filter(name=>name.startsWith('mcp__dsha-vscreen__')).length,15);
     assert.equal(ctx.computerUse.providerName,'dsha-android');
     const assembly=await ctx.systemPrompt.assemble();

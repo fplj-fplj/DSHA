@@ -8,10 +8,12 @@ import path from 'node:path';
 import {createRequire, registerHooks} from 'node:module';
 import {fileURLToPath,pathToFileURL} from 'node:url';
 import {testRuntime} from './test-runtime-fixture.mjs';
-import {reuseConversationRuntime} from './qa-rc21/conversation-stop-runtime.mjs';
 const stage=(phase,facts={})=>process.stderr.write(JSON.stringify({phase,at:new Date().toISOString(),...facts})+'\n');
 stage('conversation-stop-runtime-binding-before');
-const namedProof=process.env.DSHA_STOP_REUSE_INPUTS?reuseConversationRuntime(process.env.DSHA_STOP_REUSE_INPUTS,{sourceRoot:process.cwd(),environmentRuntime:process.env.DSHA_STOP_RUNTIME}):undefined;
+// 旧实验室复用证明仅在显式请求时加载；当前构建必须走完整的锁定运行时核验。
+const namedProof=process.env.DSHA_STOP_REUSE_INPUTS
+  ? (await import('./qa-rc21/conversation-stop-runtime.mjs')).reuseConversationRuntime(process.env.DSHA_STOP_REUSE_INPUTS,{sourceRoot:process.cwd(),environmentRuntime:process.env.DSHA_STOP_RUNTIME})
+  : undefined;
 const runtime=namedProof?.runtime??(process.env.DSHA_STOP_RUNTIME ? testRuntime('raw', 'DSHA_STOP_RUNTIME') : testRuntime('raw'));
 stage('conversation-stop-runtime-binding-after',{controlRole:namedProof?'PRIOR_MANAGED_UNCHANGED_CONTROL':'RAW_LOCKED_CONTROL',currentWholeRootProofExecuted:!namedProof});
 namedProof?.observe(path.join(runtime,'node_modules/@deepseek-ai/dsh-client-ui-conversation/lib/client.js'));

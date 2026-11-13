@@ -30,7 +30,7 @@ try {
   assert.equal(fs.realpathSync(actual),fs.realpathSync(provided));
   assert.equal(loaded.skippedBundles.length,0);
   assert.equal(fs.realpathSync(loaded.layers[0].packageDir),fs.realpathSync(provided));
-  const script=`import importlib.util,json,os
+  const script=`import importlib.util,json,os,hashlib
 spec=importlib.util.spec_from_file_location('manager',os.path.join(os.environ['DSHA_RESOLUTION_ASSETS'],'plugin-manager.py'))
 manager=importlib.util.module_from_spec(spec);spec.loader.exec_module(manager)
 captured={}
@@ -38,8 +38,16 @@ def result(status,message,**extra): captured.update(extra)
 manager.result=result
 name=os.environ['DSHA_RESOLUTION_NAME']
 manager.cmd_list()
+unverified=next(row for row in captured['items'] if row['name']==name)['runtimeProvided']
+# 安装路径决定实际加载位置，但受管身份仍需启动器认证的完整内容证明。
+proof_path=manager.local('/root/.dsh/managed-package-proofs.json')
+proof=json.dumps({'version':1,'packages':{name:manager.builtin.package_content_proof(manager.resolve_plugin_dir(name))}}).encode('utf8')
+with open(proof_path,'wb') as stream: stream.write(proof)
+os.environ['DSHA_MANAGED_PACKAGE_PROOFS_SHA256']=hashlib.sha256(proof).hexdigest()
+captured.clear()
+manager.cmd_list()
 item=next(row for row in captured['items'] if row['name']==name)
-print(json.dumps(dict(resolve=manager.resolve_plugin_dir(name),entity=manager.local(manager.builtin.entity_dir(name)),version=item['version'],runtimeProvided=item['runtimeProvided'],deletable=item['deletable'])))
+print(json.dumps(dict(resolve=manager.resolve_plugin_dir(name),entity=manager.local(manager.builtin.entity_dir(name)),version=item['version'],unverifiedBefore=unverified,runtimeProvided=item['runtimeProvided'],deletable=item['deletable'])))
 `;
   const python=process.env.DSHA_PYTHON||'python';
   const result=spawnSync(python,['-B','-c',script],{cwd:root,encoding:'utf8',env:{...process.env,DSHA_TEST_ROOT:temporary,DSH_HOME:'/root/.dsh',DSHA_RESOLUTION_ASSETS:path.join(root,'app/src/main/assets'),DSHA_RESOLUTION_NAME:name}});
@@ -47,6 +55,7 @@ print(json.dumps(dict(resolve=manager.resolve_plugin_dir(name),entity=manager.lo
   const native=JSON.parse(result.stdout);
   assert.equal(fs.realpathSync(native.resolve),fs.realpathSync(actual),'inventory describes different bytes from real app-boot');
   assert.equal(fs.realpathSync(native.entity),fs.realpathSync(actual),'enable path differs from real app-boot');
+  assert.equal(native.unverifiedBefore,false,'installation location alone cannot prove managed ownership');
   assert.equal(native.version,'0.2.0');assert.equal(native.runtimeProvided,true);assert.equal(native.deletable,false);
   assert.deepEqual(fs.readFileSync(path.join(user,'user-edit.js')),original);
   assert.equal(JSON.parse(fs.readFileSync(path.join(user,'package.json'),'utf8')).version,'9.0.0-user-edit');

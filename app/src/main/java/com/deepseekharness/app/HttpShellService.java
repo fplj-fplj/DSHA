@@ -2020,7 +2020,7 @@ public final class HttpShellService {
             fs.child(owned, com.deepseekharness.app.util.WebTransferPolicy.fileName(f.getName()));
         com.deepseekharness.app.util.BridgeFileSnapshot.copy(
             fs,
-            new java.io.File(canon),
+            f.getCanonicalFile(),
             snapshot,
             com.deepseekharness.app.util.WebTransferPolicy.DOWNLOAD_LIMIT);
         android.net.Uri uri =

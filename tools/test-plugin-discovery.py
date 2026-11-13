@@ -614,15 +614,28 @@ class DiscoveryTest(unittest.TestCase):
         self.assertFalse(any(Path(self.builtin.marker_path(alias)).exists() for alias in aliases))
         self.assertEqual(original, (runtime/'package.json').read_bytes())
 
-    def test_symlinked_shared_runtime_is_not_a_user_plugin(self):
+    def test_symlinked_shared_runtime_requires_proof_before_it_is_hidden(self):
         runtime = self.plugin('usr/local/lib/node_modules/@deepseek-ai/dsh/node_modules')
+        original = (runtime / 'package.json').read_bytes()
         link = self.root / 'root/.dsh/node_modules/test-plugin'
         link.parent.mkdir(parents=True)
         try:
             link.symlink_to(runtime, target_is_directory=True)
         except OSError as error:
             self.skipTest('此宿主无创建符号链接权限：' + str(error))
+        # 运行时位置和软链接不能代替宿主已认证的内容证明；未验证插件必须仍可见。
+        item = self.items()['test-plugin']
+        self.assertTrue(item['runtimeLocated'])
+        self.assertFalse(item['runtimeProvided'])
+        self.assertEqual('user', item['origin'])
+        self.authenticate_runtime('test-plugin', runtime)
         self.assertNotIn('test-plugin', self.items())
+        # 同一真实链接的内容发生变化后，旧证明不得继续隐藏用户修改。
+        (runtime / 'user-edit.js').write_text('preserve this user change', encoding='utf8')
+        self.assertFalse(self.items()['test-plugin']['runtimeProvided'])
+        self.assertTrue(link.is_symlink())
+        self.assertEqual(original, (runtime / 'package.json').read_bytes())
+        self.assertEqual('preserve this user change', (runtime / 'user-edit.js').read_text())
 
     def test_detected_profile_plugin_can_be_enabled_without_deleting_original(self):
         probe = self.root / 'link-permission-probe'

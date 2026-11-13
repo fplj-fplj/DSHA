@@ -37,7 +37,8 @@ def main():
             '--ks-pass', 'env:DSHA_FORK_STORE_PASSWORD', '--key-pass', 'env:DSHA_FORK_STORE_PASSWORD',
             '--v1-signing-enabled', 'true', '--v2-signing-enabled', 'true', '--v3-signing-enabled', 'true',
             '--v4-signing-enabled', 'false', target)
-        signature = run(tools / 'apksigner', 'verify', '--verbose', '--print-certs', target)
+        # Standard 的 minSdk 30 默认略过 v1；从 API 23 核验三种实际签名，清单版本另验。
+        signature = run(tools / 'apksigner', 'verify', '--min-sdk-version', '23', '--verbose', '--print-certs', target)
         if re.findall(r'Signer #\d+ certificate SHA-256 digest: ([a-f0-9]+)', signature) != [identity['certificateSha256']]:
             raise ValueError('FORK_CERTIFICATE_MISMATCH')
         for scheme in identity['schemes']:

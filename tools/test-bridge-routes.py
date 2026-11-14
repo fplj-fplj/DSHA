@@ -56,6 +56,7 @@ public class BridgeRouteProbe {
             '/device/vscreen/commit': 'DEVICE_VSCREEN_COMMIT:false',
             '/device/plan': 'DEVICE_PLAN:true',
             '/device/execute': 'DEVICE_EXECUTE:true',
+            '/device/root-notice': 'ROOT_NOTICE:false',
             '/app/notify': 'NOTIFY:false', '/app/toast': 'TOAST:false',
             '/app/readfile': 'READ_FILE:false', '/health': 'HEALTH:false',
             '/app/ui/dump': 'UI:false', '/app/vscreen/status': 'VSCREEN:false',

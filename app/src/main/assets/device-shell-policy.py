@@ -284,6 +284,8 @@ def valid_vscreen_identity(value):
 
 def execute(plan, shell, result_class):
     if isinstance(plan, dict) and plan.get('version') == 1 and plan.get('kind') == 'SHELL':
+        if plan.get('su'):
+            raise Blocked('ROOT_REQUIRES_RESTRICTED_PLAN')
         command = plan.get('command')
         if (not isinstance(command, str) or not command.strip() or '\0' in command
                 or plan.get('argv') != ['sh', '-c', command]):

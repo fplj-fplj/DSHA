@@ -37,8 +37,8 @@ final class FullPermissionControls implements AutoCloseable {
     if (closed) return;
     status.setText(
         UiText.choose(
-            "本版按你的授权执行操作，不再询问 DSHA 安全确认，也不限制设备命令和文件目录。Root、Shizuku、ADB 连接及 Android 系统权限仍需在本机授予。",
-            "This build executes your authorized operations without DSHA safety confirmations, command allowlists or file-directory restrictions. Root, Shizuku, ADB connections and Android system permissions still require grants on this device."));
+            "本版保留 Root 命令限制和独立说明弹窗；Root 操作不能通过全局免确认跳过检查。普通通道和文件接口沿用用户授权设置。Root、Shizuku、ADB 连接及 Android 系统权限仍需在本机授予。",
+            "Root command restrictions and dedicated notices remain enabled and cannot be bypassed by global auto approval. Ordinary channels and file interfaces retain the authorized settings. Root, Shizuku, ADB connections and Android system permissions still require grants on this device."));
   }
 
   void pause() {}

@@ -44,11 +44,13 @@ class FlowTest(unittest.TestCase):
         self.stack.enter_context(patch.object(adb, 'remember_endpoint'))
         self.stack.enter_context(patch.object(adb, 'load_port_history', return_value=[]))
         self.discovery = self.stack.enter_context(patch.object(adb, 'discover_endpoints', return_value=[]))
+        self.root_notice = self.stack.enter_context(patch.object(adb, 'notify_root_blocked'))
         self.stack.enter_context(patch.object(pair, 'adb', adb))
         self.stack.enter_context(patch.object(pair, 'ensure_key'))
         self.stack.enter_context(patch.object(pair, 'check_deps', return_value=True))
         self.stack.enter_context(patch.object(pair, 'open', side_effect=lambda *a, **k: io.StringIO('39000'), create=True))
         self.events = []
+        self.commands = []
         self.connect_error = None
         self.shell_error = None
         self.remote_output = '结果\n'
@@ -70,6 +72,7 @@ class FlowTest(unittest.TestCase):
                     if error: raise error
                 return True
             def shell(self, command, **kwargs):
+                test.commands.append(command)
                 test.events.append(('shell', self.host, self.port))
                 for name in ('transport_timeout_s', 'read_timeout_s', 'timeout_s'):
                     test.assertGreater(kwargs[name], 0)
@@ -82,6 +85,41 @@ class FlowTest(unittest.TestCase):
 
     def execute(self):
         return adb.connect_with_retry(self.Device, self.Signer, 'input tap 10 10', 39000)
+
+    def test_root_adbd_rechecks_command_and_never_sends_a_denied_script(self):
+        self.remote_output = '0\n'
+        plan = dict(version=1, kind='SHELL', command='setenforce 0', argv=['sh', '-c', 'setenforce 0'])
+        with patch.object(adb, 'request_device_plan', side_effect=adb.policy.Blocked('ROOT_BLOCKED')) as inspect:
+            with self.assertRaises(adb.policy.Blocked):
+                adb.connect_with_retry(self.Device, self.Signer, plan, 39000)
+        inspect.assert_called_once_with('setenforce 0', True)
+        self.assertEqual(1, len(self.commands))
+        self.assertIn('/system/bin/id -u', self.commands[0])
+        self.assertNotIn('setenforce', self.commands[0])
+
+    def test_root_adbd_runs_only_the_native_restricted_plan(self):
+        self.remote_output = '0\n'
+        plan = dict(version=1, kind='SHELL', command='id', argv=['sh', '-c', 'id'])
+        with patch.object(adb, 'request_device_plan', return_value=dict(version=1, kind='READ', argv=['id'], su=True)):
+            result = adb.connect_with_retry(self.Device, self.Signer, plan, 39000)
+        self.assertEqual(0, result.exit_code)
+        self.assertEqual(2, len(self.commands))
+        self.assertNotIn('su -c', self.commands[-1])
+
+    def test_unknown_adb_identity_never_sends_the_user_command(self):
+        self.remote_output = 'unexpected identity\n'
+        plan = dict(version=1, kind='SHELL', command='echo marker', argv=['sh', '-c', 'echo marker'])
+        with self.assertRaisesRegex(adb.policy.Blocked, 'DEVICE_UID_UNVERIFIED'):
+            adb.connect_with_retry(self.Device, self.Signer, plan, 39000)
+        self.assertEqual(1, len(self.commands))
+        self.assertNotIn('echo marker', self.commands[0])
+
+    def test_root_policy_denial_notifies_once_without_device_replay(self):
+        plan = dict(version=1, kind='SHELL', command='id', argv=['sh', '-c', 'id'], su=True)
+        with self.assertRaises(adb.policy.Blocked):
+            adb.connect_with_retry(self.Device, self.Signer, plan, 39000)
+        self.root_notice.assert_called_once_with()
+        self.assertEqual([], self.commands)
 
     def sensitive_plan(self):
         return {'version': 1, 'kind': 'READ',

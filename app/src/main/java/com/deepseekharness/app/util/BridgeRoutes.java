@@ -11,6 +11,7 @@ public final class BridgeRoutes {
     DEVICE_VSCREEN_COMMIT(false),
     DEVICE_PLAN(true),
     DEVICE_EXECUTE(true),
+    ROOT_NOTICE(false),
     NOTIFY(false),
     TASK_CONTEXT(false),
     TASK_EVENT(false),
@@ -64,6 +65,7 @@ public final class BridgeRoutes {
     add(routes, "/device/vscreen/commit", Route.DEVICE_VSCREEN_COMMIT);
     add(routes, "/device/plan", Route.DEVICE_PLAN);
     add(routes, "/device/execute", Route.DEVICE_EXECUTE);
+    add(routes, "/device/root-notice", Route.ROOT_NOTICE);
     add(routes, "/app/notify", Route.NOTIFY);
     add(routes, "/app/tasks/context", Route.TASK_CONTEXT);
     add(routes, "/app/tasks/event", Route.TASK_EVENT);

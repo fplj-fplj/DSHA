@@ -257,7 +257,7 @@ def run_on_endpoint(device_cls, signer_cls, cmd, host, port, deadline, command_t
                     # A connection may outlive the user's native permission. Recheck
                     # the same canonical query at the last pre-send boundary; a new
                     # plan must not silently change its user or requested fields.
-                    current = request_device_plan(command, bool(cmd.get('su')))
+                    current = request_device_plan(command, bool(cmd.get('su') or cmd.get('rootIdentity')))
                     if (current.get('authorization') != 'remembered'
                             or any(current.get(key) != cmd.get(key)
                                    for key in ('version', 'kind', 'argv', 'capability', 'authorization'))):
@@ -276,8 +276,22 @@ def run_on_endpoint(device_cls, signer_cls, cmd, host, port, deadline, command_t
                     transport_timeout_s=min(TRANSPORT_TIMEOUT, command_timeout),
                     read_timeout_s=min(8, command_timeout), timeout_s=command_timeout)
                 return parse_shell_result(raw, marker)
+            if isinstance(cmd, dict) and cmd.get('kind') == 'SHELL':
+                if cmd.get('su'):
+                    raise policy.Blocked('ROOT_REQUIRES_RESTRICTED_PLAN')
+                identity = shell('/system/bin/id -u')
+                if identity.exit_code != 0 or not re.fullmatch(r'[0-9]+', identity.output.strip()):
+                    raise policy.Blocked('DEVICE_UID_UNVERIFIED')
+                if identity.output.strip() == '0':
+                    # adbd 本身也可能拥有 Root：在本次连接上重新取得受限计划。
+                    restricted = request_device_plan(cmd['command'], True)
+                    if restricted.get('kind') not in ('READ', 'FILE', 'STOP'):
+                        raise policy.Blocked('ROOT_REQUIRES_RESTRICTED_PLAN')
+                    cmd = dict(restricted, su=False, rootIdentity=True)
             result = policy.execute(cmd, shell, ShellResult) if isinstance(cmd, dict) else shell(cmd)
         except policy.Blocked:
+            if isinstance(cmd, dict) and (cmd.get('su') or cmd.get('rootIdentity')):
+                notify_root_blocked()
             raise
         except Exception as e:
             raise ExecutionUnknown('%s:%d 返回中断（%s）；命令可能已执行，请先检查设备，未自动重试'
@@ -319,6 +333,23 @@ def connect_with_retry(device_cls, signer_cls, cmd, port, host='',
     if result is not None:
         return result
     raise ConnectFail('命令尚未发送；请检查无线调试与配对授权。尝试记录：\n' + '\n'.join(errors[-8:]))
+
+
+def notify_root_blocked():
+    """只上报一个待提示标志，不携带命令，不因通知失败重试设备操作。"""
+    import urllib.request
+    try:
+        with open('/root/.dsh/.bridge_token') as source:
+            token = source.read().strip()
+        if not token:
+            return
+        request = urllib.request.Request('http://127.0.0.1:3090/device/root-notice',
+                                         data=b'', headers={'X-Token': token}, method='POST')
+        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+        with opener.open(request, timeout=3) as response:
+            response.read(4096)
+    except Exception:
+        pass
 
 
 def request_device_plan(cmd, use_su=False):

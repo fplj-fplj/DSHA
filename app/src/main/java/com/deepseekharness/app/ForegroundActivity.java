@@ -28,6 +28,8 @@ public final class ForegroundActivity implements Application.ActivityLifecycleCa
   @Override
   public void onActivityResumed(Activity activity) {
     if (activity instanceof FragmentActivity) CURRENT.resumed((FragmentActivity) activity);
+    new android.os.Handler(android.os.Looper.getMainLooper())
+        .post(() -> com.deepseekharness.app.ui.RootShellDialogs.showPending(activity));
     com.deepseekharness.app.vscreen.VirtualScreenManager.from(activity)
         .foreground()
         .resume(activity);

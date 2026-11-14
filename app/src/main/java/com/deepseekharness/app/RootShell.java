@@ -38,8 +38,8 @@ public final class RootShell {
         case RESPONDED ->
             com.deepseekharness.app.util.UiText.format(
                 com.deepseekharness.app.util.UiText.choose(
-                    "su：%s\nroot 通道已响应 · 执行用户授权命令",
-                    "su: %s\nRoot channel responded; user-authorized commands are enabled"),
+                    "su：%s\nRoot 通道已响应 · 命令限制已开启",
+                    "su: %s\nRoot channel responded; command restrictions are enabled"),
                 current);
         case TIMED_OUT ->
             com.deepseekharness.app.util.UiText.format(
@@ -95,7 +95,23 @@ public final class RootShell {
     if (!enabled(ctx))
       return com.deepseekharness.app.util.UiText.text(
           "[POLICY_BLOCKED] 未允许 root shell\n[EXIT=126]");
-    return runPrivileged(ctx, command, -1, "");
+    DeviceShellPolicy.Plan plan = DeviceShellPolicy.inspect(command);
+    if (!plan.allowed()) {
+      com.deepseekharness.app.ui.RootShellDialogs.blocked(ctx);
+      return plan.reason + "\n[EXIT=126]";
+    }
+    int user = -1;
+    if (plan.kind == DeviceShellPolicy.Kind.SENSITIVE_READ) {
+      if (!new com.deepseekharness.app.core.DeviceGrants(ctx).smsReadAllowed()) {
+        com.deepseekharness.app.ui.RootShellDialogs.blocked(ctx);
+        return "[POLICY_BLOCKED] SMS_NATIVE_AUTHORIZATION_REQUIRED\n[EXIT=126]";
+      }
+      user = ctx.getApplicationInfo().uid / 100000;
+    }
+    String output = runPrivileged(ctx, command, user, "");
+    if (output.contains("[POLICY_BLOCKED]"))
+      com.deepseekharness.app.ui.RootShellDialogs.blocked(ctx);
+    return output;
   }
 
   /** Native-only launcher path. Generic RootShell.exec rejects app_process unconditionally. */

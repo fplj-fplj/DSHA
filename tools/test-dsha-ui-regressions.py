@@ -238,7 +238,7 @@ class AuthorizedBridgeFileAccess(unittest.TestCase):
             self.assertIn(needle, src, "凭据路径缺失：" + needle)
 
     def test_help_text_reports_authorized_execution(self):
-        self.assertIn('用户已授权本版移除 DSHA 安全确认与设备命令白名单', self.shell)
+        self.assertIn('本版保留 Root 命令限制与独立说明弹窗', self.shell)
         self.assertNotIn('凭据区不可导出', self.shell)
 
 

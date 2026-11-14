@@ -39,6 +39,11 @@ class PolicyTest(unittest.TestCase):
             with self.assertRaises(policy.Blocked):
                 policy.execute(plan, lambda _: self.fail('invalid command was sent'), result)
 
+    def test_root_cannot_execute_a_previously_unrestricted_shell_plan(self):
+        plan = dict(version=1, kind='SHELL', command='id', argv=['sh', '-c', 'id'], su=True)
+        with self.assertRaisesRegex(policy.Blocked, 'ROOT_REQUIRES_RESTRICTED_PLAN'):
+            policy.execute(plan, lambda _: self.fail('Root shell bypass was sent'), result)
+
     def setUp(self):
         self.sent = []
         self.users = 'package:example.app uid:12345\npackage:com.dsh.client uid:12346\n'

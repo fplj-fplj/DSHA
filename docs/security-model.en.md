@@ -1,3 +1,5 @@
+> **2026-11-14 revision**: Managed Root entries enforce command, file and app-target checks with dedicated explanatory dialogs. Shizuku/ADB running as UID 0 are also restricted. Ordinary channels and bridge file interfaces retain the prior settings. The documented recursive READ symlink gap remains. [Scope](releases/root-restrictions-20261114.md). The unrestricted Root description below is historical.
+
 # DSHA security model
 
 > Maintained English entry: [Security model](en/security-model.md). See the [complete English index](en/index.md) and [current delivery scope](en/release-introduction.md). Historical examples below retain their original identity.

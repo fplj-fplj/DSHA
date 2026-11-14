@@ -135,11 +135,33 @@ public final class DeviceGrantsFragment extends Fragment {
     root.setOnCheckedChangeListener(
         (button, enabled) -> {
           if (updating) return;
+          if (enabled) {
+            updating = true;
+            button.setChecked(false);
+            updating = false;
+            RootShellDialogs.explain(
+                ctx,
+                () -> {
+                  if (!isAdded() || getView() != view || !isResumed()) return;
+                  new ConfigStore(ctx).setRootShellAllowed(true);
+                  updating = true;
+                  button.setChecked(true);
+                  updating = false;
+                  syncSettings();
+                  refreshChannelLabels();
+                });
+            return;
+          }
           new ConfigStore(ctx).setRootShellAllowed(enabled);
           if (!enabled) com.deepseekharness.app.vscreen.VirtualScreenManager.from(ctx).revoke();
           syncSettings();
           refreshChannelLabels();
         });
+    android.widget.Button rootGuide = view.findViewById(R.id.device_root_guide);
+    rootGuide.setText(
+        com.deepseekharness.app.util.UiText.choose(
+            "Root 命令限制与说明", "Root command restrictions and guide"));
+    rootGuide.setOnClickListener(button -> RootShellDialogs.explain(ctx, null));
     view.findViewById(R.id.device_root_verify)
         .setOnClickListener(
             button -> {

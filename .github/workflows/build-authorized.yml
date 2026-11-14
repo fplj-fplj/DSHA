@@ -86,8 +86,8 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          tag="authorized-20261113-${GITHUB_SHA:0:12}"
-          gh release create "$tag" app/build/authorized-release/* --target "$GITHUB_SHA" --title "DSHA 用户授权版 2026-11-13" --notes-file docs/releases/user-authorized-20261113.md --latest
+          tag="root-guard-20261114-${GITHUB_SHA:0:12}"
+          gh release create "$tag" app/build/authorized-release/* --target "$GITHUB_SHA" --title "DSHA Root 限制版 2026-11-14" --notes-file docs/releases/root-restrictions-20261114.md --latest
       - name: Check remaining storage
         if: always()
         run: |

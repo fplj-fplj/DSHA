@@ -1,5 +1,7 @@
 # DSHA
 
+> **2026-11-14 修订**：按用户要求恢复 Root 命令限制，并增加启用/拦截提示及常用命令说明。普通非 Root 通道与桥文件接口沿用授权版设置。继续使用 `dsh.android.client` 和本仓库固定签名，由 [GitHub Actions](https://github.com/fplj-fplj/DSHA/actions/workflows/build-authorized.yml) 构建；[最新下载](https://github.com/fplj-fplj/DSHA/releases/latest) · [本轮说明与验证范围](docs/releases/root-restrictions-20261114.md)。下方 11-13 说明中的 Root 全部放开规则已被本次修订覆盖。
+
 > **fplj-fplj 用户授权版（2026-11-13）**：本仓库已用 `/home/dshafix` 的 build190 项目全量替换旧源码。移除 DSHA 安全确认、设备 shell 白名单以及文件读取/导出/分享的目录拦截；设备 shell 支持完整脚本、管道、重定向和系统/应用操作。Android 系统权限与 Root/Shizuku/ADB 连接仍按实际授权生效。包名继续为 **`dsh.android.client`**，Standard/Low 均由 [GitHub Actions](https://github.com/fplj-fplj/DSHA/actions/workflows/build-authorized.yml) 构建和验证。下载见[本仓库 Release](https://github.com/fplj-fplj/DSHA/releases/latest)。本仓库使用固定独立签名，不能覆盖安装上游 E7E3 签名的旧包；迁移前请先导出数据。下文上游下载和验收记录属于原版历史。详见[本版说明](docs/releases/user-authorized-20261113.md)。
 
 <p align="center">

@@ -27,6 +27,11 @@ extends IShellService.Stub {
 
     @Override
     public String exec(String cmd) {
+        // Shizuku 也可能以 UID 0 运行，按真实执行身份选择 Root 守卫。
+        if (android.os.Process.myUid() == 0) {
+            try{return DeviceShellExecutor.executeRoot(cmd,this::executeArgv,identity());}
+            catch(java.io.IOException error){return "[POLICY_BLOCKED] "+SensitiveData.redact(error.getMessage())+"\n[EXIT=126]";}
+        }
         return DeviceShellExecutor.execute(cmd,this::executeArgv);
     }
     @Override public String execVirtualScreen(String command) {

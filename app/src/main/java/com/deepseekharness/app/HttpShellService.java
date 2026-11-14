@@ -221,6 +221,12 @@ public final class HttpShellService {
             s.deviceExecute(
                 r.command, "1".equals(r.param("su", "0")), "1".equals(r.param("adb", "0"))));
     routes.put(BridgeRoutes.Route.CONSENT_POLICY, (s, r) -> s.consentPolicy(r.scope));
+    routes.put(
+        BridgeRoutes.Route.ROOT_NOTICE,
+        (s, r) -> {
+          com.deepseekharness.app.ui.RootShellDialogs.blocked(s.ctx);
+          return "ROOT_NOTICE_QUEUED";
+        });
     routes.put(BridgeRoutes.Route.NOTIFY, (s, r) -> s.appNotify(r.path));
     routes.put(
         BridgeRoutes.Route.TASK_CONTEXT, (s, r) -> s.appTask("context", r.param("payload", "")));
@@ -921,18 +927,22 @@ public final class HttpShellService {
   /** 在发送命令前选一次通道；只有明确返回 ADB 计划时客户端才可连接 ADB。 */
   private String deviceExecute(String command, boolean forceRoot, boolean forceAdb) {
     try {
-      String planned = devicePlan(command, forceRoot);
+      boolean nativeRoot = !forceAdb && RootShell.enabled(ctx) && RootShell.present();
+      String planned = devicePlan(command, forceRoot || nativeRoot);
       if (!planned.startsWith("{")) return completedExecution("policy", planned + "\n[EXIT=126]");
       org.json.JSONObject plan = new org.json.JSONObject(planned);
       if (plan.optString("kind").equals("DENY"))
         return completedExecution("policy", plan.optString("reason") + "\n[EXIT=126]");
       boolean sms = "sms.read".equals(plan.optString("capability"));
-      if (!forceAdb && RootShell.enabled(ctx) && RootShell.present()) {
+      if (nativeRoot) {
         int user = sms ? android.os.Process.myUid() / 100000 : -1;
         return completedExecution("root", RootShell.exec(ctx, command, user));
       }
       if (!forceAdb && !forceRoot && !sms && ShizukuShell.hasPermission()) {
-        return completedExecution("shizuku", ShizukuShell.exec(command));
+        String output = ShizukuShell.exec(command);
+        if (output.contains("[POLICY_BLOCKED]"))
+          com.deepseekharness.app.ui.RootShellDialogs.blocked(ctx);
+        return completedExecution("shizuku", output);
       }
       if (!DeviceBridgeService.isAdbEnabled(ctx))
         return completedExecution(
@@ -1004,16 +1014,52 @@ public final class HttpShellService {
     }
   }
 
-  /** 用户授权版统一命令计划；原文交给设备 sh，不附加历史白名单或目录限制。 */
+  /** 普通通道保留原始 shell；Root 计划恢复命令、文件和应用目标检查。 */
   private String devicePlan(String command, boolean root) {
     try {
       var argv = com.deepseekharness.app.util.AuthorizedDeviceShell.argv(command);
-      if (root && !RootShell.enabled(ctx))
-        return new org.json.JSONObject()
-            .put("version", 1)
-            .put("kind", "DENY")
-            .put("reason", "ROOT_NOT_ENABLED")
-            .toString();
+      if (root) {
+        var inspected = com.deepseekharness.app.util.DeviceShellPolicy.inspect(command);
+        boolean sms =
+            inspected.kind == com.deepseekharness.app.util.DeviceShellPolicy.Kind.SENSITIVE_READ;
+        String reason =
+            !RootShell.enabled(ctx)
+                ? "ROOT_NOT_ENABLED"
+                : !inspected.allowed()
+                    ? inspected.reason
+                    : sms && !new com.deepseekharness.app.core.DeviceGrants(ctx).smsReadAllowed()
+                        ? "SMS_NATIVE_AUTHORIZATION_REQUIRED"
+                        : "";
+        if (!reason.isEmpty()) {
+          com.deepseekharness.app.ui.RootShellDialogs.blocked(ctx);
+          return new org.json.JSONObject()
+              .put("version", 1)
+              .put("kind", "DENY")
+              .put("reason", "[POLICY_BLOCKED] " + reason)
+              .toString();
+        }
+        var rootPlan =
+            new org.json.JSONObject()
+                .put("version", 1)
+                .put("kind", sms ? "READ" : inspected.kind.name())
+                .put(
+                    "argv",
+                    new org.json.JSONArray(
+                        sms
+                            ? com.deepseekharness.app.util.SmsQuery.forUser(
+                                inspected.argv, ctx.getApplicationInfo().uid / 100000)
+                            : inspected.argv))
+                .put("operands", new org.json.JSONArray(inspected.operands))
+                .put(
+                    "paths",
+                    new org.json.JSONObject(
+                        com.deepseekharness.app.util.DeviceShellPolicy.pathRules()))
+                .put("sourceApk", ctx.getApplicationInfo().sourceDir)
+                .put("selfPackage", ctx.getPackageName())
+                .put("selfUid", ctx.getApplicationInfo().uid);
+        if (sms) rootPlan.put("capability", "sms.read").put("authorization", "remembered");
+        return rootPlan.toString();
+      }
       return new org.json.JSONObject()
           .put("version", 1)
           .put("kind", "SHELL")
@@ -1023,6 +1069,7 @@ public final class HttpShellService {
           .put("operands", new org.json.JSONArray())
           .toString();
     } catch (Exception error) {
+      if (root) com.deepseekharness.app.ui.RootShellDialogs.blocked(ctx);
       return "{\"version\":1,\"kind\":\"DENY\",\"reason\":\"INVALID_SHELL_COMMAND\"}";
     }
   }
@@ -1680,7 +1727,7 @@ public final class HttpShellService {
   /** /app/help lists bridge endpoint parameters for authenticated clients. */
   private String appHelp() {
     return com.deepseekharness.app.util.UiText.format(
-        "DSHA 3090 桥端点清单（BRIDGE_PROTOCOL=%s）\n凭据由宿主写入 /root/.dsh/.bridge_headers；使用 curl -H @/root/.dsh/.bridge_headers，不把 token 写进 URL 或命令参数。\n带中文/空格的参数一律用 -G --data-urlencode，别手写 URL 编码。\n\n== 屏幕操作（无障碍服务，不需要 ADB/Shizuku）==\n坐标触控仅限物理display 0：先 /app/ui/screenshot，返回 coordinatesAvailable:true 且含 observationId 才可用；dump/tree不签发像素凭据。ID限最新截图、30秒、一次手势；画面/窗口/遮挡/代次变化即拒绝。\n文字/节点动作返回 SCREEN_ACTION_SUBMITTED、actionAccepted:true、effectVerified:false 只代表Android接受动作，不证明WebView DOM已变；须重新观察，后续坐标操作须显式取新截图，禁止隐式回退或重放UNKNOWN。\n读屏  curl -s -H @/root/.dsh/.bridge_headers \"127.0.0.1:3090/app/ui/dump\"\n      → 每行语义节点附bounds；boundsHaveArea:false没有可触摸面积，不能取中心点触控\n点按  curl -s -G 127.0.0.1:3090/app/ui/tap --data-urlencode \"text=设置\" -H @/root/.dsh/.bridge_headers\n      → 优先按文字点：控件位置随滚动/动画变，文字不变。坐标触控须先截图取得 observationId（dump不签发），再用 ?observationId=截图返回的ID&x=&y=\n输入  curl -s -G 127.0.0.1:3090/app/ui/input --data-urlencode \"text=内容\" -H @/root/.dsh/.bridge_headers\n      → 填到当前焦点框；没有焦点先 tap 一下输入框\n按键  /app/ui/key?name=back  （back/home/recents/notifications/quicksettings/lock）\n长按  /app/ui/tap?observationId=截图返回的ID&x=540&y=1200&gesture=long_press&ms=600\n双击  /app/ui/tap?observationId=截图返回的ID&x=540&y=1200&gesture=double_tap（同一Gesture/一次许可）\n当前只支持单指触控；多指/缩放不支持。\n滑动  /app/ui/swipe?observationId=截图返回的ID&x1=500&y1=1500&x2=500&y2=500&ms=300\n截屏  /app/ui/screenshot   → 存 PNG 到应用截图目录并返回路径（不回 base64）\n节奏：每次点按/输入后先 dump 再决定下一步，别凭记忆连点。\n\n== 独立虚拟屏（Android 11+；每次输入必须带最新 frameSeq）==\n/app/vscreen/create?orientation=portrait|landscape  创建虚拟屏\n/app/vscreen/status  查询 displayId、尺寸和 frameSeq\n/app/vscreen/launch?package=com.example.app  启动已安装应用\n/app/vscreen/see  获取最新预览；tap/swipe/type/key 必须携带该 frameSeq\n/app/vscreen/close  关闭并回收虚拟屏\n\n== 设备与应用 ==\n/app/device                     机型/系统/电量/网络/屏幕/存储/内存\n/app/apps                       全部已装应用，分用户应用与系统应用；可加 q/limit/user=1 筛选显示\n/app/launch?pkg=com.tencent.mm  启动应用\n/app/clip                       读剪贴板（需 App 在前台，系统限制）\n/app/clip + text=…              写剪贴板\n/app/readfile?path=/…          读取绝对路径的目录或文本，仍受 Android 权限限制\n设备文件写入可使用下方设备 shell；本版不限制文件目录，实际权限由 Android 执行。\n\n== 与用户交互 ==\n/app/ask?options=继续|取消 + q=…  弹窗阻塞等回答（最多三个选项）\n/app/notify?title=… + text=…      通知栏\n/app/toast + text=…               App 内提示\n/app/vibrate?ms=300               震动（长任务跑完叫醒用户）\n/app/share（text= 或 path=）      分享到其它应用\n/app/open?url=https://…           打开链接\n/app/export?path=/root/report.md  把产物交给用户 → 落 Download/DSHA\n建议：需要用户拍板用 /app/ask 而不是干等；长任务结束用 notify 或 vibrate 叫人；\n产出报告用 /app/export，别只留在容器里。\n\n== 传感器与位置（默认关闭，需用户在配置页勾选）==\n/app/location（加 fresh=1 强制重新定位，可能等数秒）\n/app/sensors 列表 · /app/sensor?name=light 读值\n（light 环境光 lux / accel / gyro / magnet / pressure / proximity /\n gravity / rotation 姿态四元数 / steps 开机后步数）\n/app/torch?on=1 手电\n这三类返回 DISABLED（用户没开该能力）或 NO_PERMISSION（没授系统权限）时，\n照原话告诉用户去哪开，不要重试 —— 重试不会让开关自己变。\n\n== 元信息 ==\n/app/version                          桥协议版本 + App 版本（特性检测用）\n/app/help                             本清单\n\n== 插件状态 ==\n/app/plugins                          读回上次上报的加载状态\n/app/plugins?loaded=a,b&failed=c      上报（插件侧用）\n\n== 设备 shell（自动选择 root / Shizuku / ADB）==\n/root/dsh-bin/adb-shell \"命令\"        用 id 核验实际身份\n包装命令不存在时：python3 /root/.dsh/adb-shell.py \"命令\"\n用户已授权本版移除 DSHA 安全确认与设备命令白名单。\nadb-shell 支持完整 shell 命令，包括管道、重定向、脚本、系统设置及应用管理。\n本版不附加文件目录、短信查询或系统应用操作限制；实际权限由 Android 和已连接通道决定。\n报连不上/未配对：先看上面的 App 层接口能不能办成；确实必须 shell 才请用户到\n设置 → 设备能力授权中连接可用通道，别反复试同一条命令。\n不要用 /root/dsh-bin/adb 或裸 adb —— 那是守卫包装脚本，会失败。\n\n== root（--su）==\n已启用并经 root 管理器授权的 su 可直接执行，无需 ADB 配对；其次使用 Shizuku，再使用 ADB。\n--su 使用已开启并经 root 管理器授权的通道；实际权限取决于 Root 身份。\n[EXECUTION_UNKNOWN] 表示命令可能已执行，先核对实际状态，不能切换通道或自动重放。\n",
+        "DSHA 3090 桥端点清单（BRIDGE_PROTOCOL=%s）\n凭据由宿主写入 /root/.dsh/.bridge_headers；使用 curl -H @/root/.dsh/.bridge_headers，不把 token 写进 URL 或命令参数。\n带中文/空格的参数一律用 -G --data-urlencode，别手写 URL 编码。\n\n== 屏幕操作（无障碍服务，不需要 ADB/Shizuku）==\n坐标触控仅限物理display 0：先 /app/ui/screenshot，返回 coordinatesAvailable:true 且含 observationId 才可用；dump/tree不签发像素凭据。ID限最新截图、30秒、一次手势；画面/窗口/遮挡/代次变化即拒绝。\n文字/节点动作返回 SCREEN_ACTION_SUBMITTED、actionAccepted:true、effectVerified:false 只代表Android接受动作，不证明WebView DOM已变；须重新观察，后续坐标操作须显式取新截图，禁止隐式回退或重放UNKNOWN。\n读屏  curl -s -H @/root/.dsh/.bridge_headers \"127.0.0.1:3090/app/ui/dump\"\n      → 每行语义节点附bounds；boundsHaveArea:false没有可触摸面积，不能取中心点触控\n点按  curl -s -G 127.0.0.1:3090/app/ui/tap --data-urlencode \"text=设置\" -H @/root/.dsh/.bridge_headers\n      → 优先按文字点：控件位置随滚动/动画变，文字不变。坐标触控须先截图取得 observationId（dump不签发），再用 ?observationId=截图返回的ID&x=&y=\n输入  curl -s -G 127.0.0.1:3090/app/ui/input --data-urlencode \"text=内容\" -H @/root/.dsh/.bridge_headers\n      → 填到当前焦点框；没有焦点先 tap 一下输入框\n按键  /app/ui/key?name=back  （back/home/recents/notifications/quicksettings/lock）\n长按  /app/ui/tap?observationId=截图返回的ID&x=540&y=1200&gesture=long_press&ms=600\n双击  /app/ui/tap?observationId=截图返回的ID&x=540&y=1200&gesture=double_tap（同一Gesture/一次许可）\n当前只支持单指触控；多指/缩放不支持。\n滑动  /app/ui/swipe?observationId=截图返回的ID&x1=500&y1=1500&x2=500&y2=500&ms=300\n截屏  /app/ui/screenshot   → 存 PNG 到应用截图目录并返回路径（不回 base64）\n节奏：每次点按/输入后先 dump 再决定下一步，别凭记忆连点。\n\n== 独立虚拟屏（Android 11+；每次输入必须带最新 frameSeq）==\n/app/vscreen/create?orientation=portrait|landscape  创建虚拟屏\n/app/vscreen/status  查询 displayId、尺寸和 frameSeq\n/app/vscreen/launch?package=com.example.app  启动已安装应用\n/app/vscreen/see  获取最新预览；tap/swipe/type/key 必须携带该 frameSeq\n/app/vscreen/close  关闭并回收虚拟屏\n\n== 设备与应用 ==\n/app/device                     机型/系统/电量/网络/屏幕/存储/内存\n/app/apps                       全部已装应用，分用户应用与系统应用；可加 q/limit/user=1 筛选显示\n/app/launch?pkg=com.tencent.mm  启动应用\n/app/clip                       读剪贴板（需 App 在前台，系统限制）\n/app/clip + text=…              写剪贴板\n/app/readfile?path=/…          读取绝对路径的目录或文本，仍受 Android 权限限制\n设备文件写入可使用下方设备 shell；Root 通道另有目录限制，实际权限由 Android 执行。\n\n== 与用户交互 ==\n/app/ask?options=继续|取消 + q=…  弹窗阻塞等回答（最多三个选项）\n/app/notify?title=… + text=…      通知栏\n/app/toast + text=…               App 内提示\n/app/vibrate?ms=300               震动（长任务跑完叫醒用户）\n/app/share（text= 或 path=）      分享到其它应用\n/app/open?url=https://…           打开链接\n/app/export?path=/root/report.md  把产物交给用户 → 落 Download/DSHA\n建议：需要用户拍板用 /app/ask 而不是干等；长任务结束用 notify 或 vibrate 叫人；\n产出报告用 /app/export，别只留在容器里。\n\n== 传感器与位置（默认关闭，需用户在配置页勾选）==\n/app/location（加 fresh=1 强制重新定位，可能等数秒）\n/app/sensors 列表 · /app/sensor?name=light 读值\n（light 环境光 lux / accel / gyro / magnet / pressure / proximity /\n gravity / rotation 姿态四元数 / steps 开机后步数）\n/app/torch?on=1 手电\n这三类返回 DISABLED（用户没开该能力）或 NO_PERMISSION（没授系统权限）时，\n照原话告诉用户去哪开，不要重试 —— 重试不会让开关自己变。\n\n== 元信息 ==\n/app/version                          桥协议版本 + App 版本（特性检测用）\n/app/help                             本清单\n\n== 插件状态 ==\n/app/plugins                          读回上次上报的加载状态\n/app/plugins?loaded=a,b&failed=c      上报（插件侧用）\n\n== 设备 shell（自动选择 root / Shizuku / ADB）==\n/root/dsh-bin/adb-shell \"命令\"        用 id 核验实际身份\n包装命令不存在时：python3 /root/.dsh/adb-shell.py \"命令\"\n本版保留 Root 命令限制与独立说明弹窗；全局免确认不能跳过 Root 检查。\n普通通道支持完整 shell；Root 只接受白名单内单条命令，限制文件写入与停止应用目标，拒绝管道、重定向、脚本、系统设置写入及刷机。\nRoot 短信查询需独立授权；系统应用、系统目录和照片目录受保护。桥文件接口沿用用户授权设置，实际权限由 Android 执行。\n报连不上/未配对：先看上面的 App 层接口能不能办成；确实必须 shell 才请用户到\n设置 → 设备能力授权中连接可用通道，别反复试同一条命令。\n不要用 /root/dsh-bin/adb 或裸 adb —— 那是守卫包装脚本，会失败。\n\n== root（--su）==\n已启用并经 root 管理器授权的 su 可直接执行，无需 ADB 配对；其次使用 Shizuku，再使用 ADB。\n--su 使用已开启并经 Root 管理器授权的受限通道。Root 被拦截时不执行；弹窗包含常用命令说明，没有跳过按钮。后台拦截在回到应用时提醒。\n[EXECUTION_UNKNOWN] 表示命令可能已执行，先核对实际状态，不能切换通道或自动重放。\n",
         BRIDGE_PROTOCOL);
   }
 

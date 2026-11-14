@@ -1,6 +1,6 @@
 # DSHA
 
-> **Build status**: The Root restriction changes are committed, but GitHub Actions currently rejects dispatch with HTTP 422. No new APK is available; Latest remains the November 13 build. Cloud builds now default to Standard. [Executed checks and build entry](docs/releases/root-build-status-20261114.md).
+> **Released**: The Standard build with managed Root restrictions has been built, verified and published as Latest by GitHub Actions, for Android 11+ / arm64. [Download Standard APK](https://github.com/fplj-fplj/DSHA/releases/download/root-guard-20261114-standard-84ef24c19086/dsha-0.2.1-rc.2.apk) · [Release and signing receipt](https://github.com/fplj-fplj/DSHA/releases/tag/root-guard-20261114-standard-84ef24c19086) · [Build results and verification scope](docs/releases/root-build-status-20261114.md). Standard JUnit: 2,127 tests, zero failures/errors, one skipped. No physical-device acceptance or new Low APK in this release.
 
 > **2026-11-14 revision**: Managed Root command restrictions are restored, with dedicated enable/block notices explaining common commands. Ordinary non-root channels and bridge file interfaces retain the authorized settings. Package `dsh.android.client` and the fixed fork certificate are unchanged. [Latest release](https://github.com/fplj-fplj/DSHA/releases/latest) · [Scope and verification](docs/releases/root-restrictions-20261114.md). This supersedes the unrestricted Root behavior described in the November 13 record below.
 

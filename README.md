@@ -1,6 +1,6 @@
 # DSHA
 
-> **本轮构建状态**：Root 限制版源码已提交，GitHub Actions 目前以 HTTP 422 拒绝触发，尚无新 APK。现有 Latest 仍是 11-13 版本。默认云端构建已调整为 Standard，详见[已执行检查与后续构建入口](docs/releases/root-build-status-20261114.md)。
+> **本轮已发布**：Root 限制版 Standard 已由 GitHub Actions 构建、验证并发布为 Latest，Android 11+ / arm64。[下载 Standard APK](https://github.com/fplj-fplj/DSHA/releases/download/root-guard-20261114-standard-84ef24c19086/dsha-0.2.1-rc.2.apk) · [Release 与签名回执](https://github.com/fplj-fplj/DSHA/releases/tag/root-guard-20261114-standard-84ef24c19086) · [构建结果与验证范围](docs/releases/root-build-status-20261114.md)。Standard JUnit 2,127 项，零失败/错误、1 项跳过；未进行真机验收，本轮不发布 Low APK。
 
 > **2026-11-14 修订**：按用户要求恢复 Root 命令限制，并增加启用/拦截提示及常用命令说明。普通非 Root 通道与桥文件接口沿用授权版设置。继续使用 `dsh.android.client` 和本仓库固定签名，由 [GitHub Actions](https://github.com/fplj-fplj/DSHA/actions/workflows/build-authorized.yml) 构建；[最新下载](https://github.com/fplj-fplj/DSHA/releases/latest) · [本轮说明与验证范围](docs/releases/root-restrictions-20261114.md)。下方 11-13 说明中的 Root 全部放开规则已被本次修订覆盖。
 

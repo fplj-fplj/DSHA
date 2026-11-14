@@ -1,5 +1,7 @@
 # DSHA
 
+> **Build status**: The Root restriction changes are committed, but GitHub Actions currently rejects dispatch with HTTP 422. No new APK is available; Latest remains the November 13 build. Cloud builds now default to Standard. [Executed checks and build entry](docs/releases/root-build-status-20261114.md).
+
 > **2026-11-14 revision**: Managed Root command restrictions are restored, with dedicated enable/block notices explaining common commands. Ordinary non-root channels and bridge file interfaces retain the authorized settings. Package `dsh.android.client` and the fixed fork certificate are unchanged. [Latest release](https://github.com/fplj-fplj/DSHA/releases/latest) · [Scope and verification](docs/releases/root-restrictions-20261114.md). This supersedes the unrestricted Root behavior described in the November 13 record below.
 
 > **fplj-fplj user-authorized build (2026-11-13):** DSHA safety confirmations, generic device-command allowlists and bridge file-directory restrictions are removed. Package identity stays `dsh.android.client`. Standard and Low builds are produced by this repository’s Actions. This fork has a fixed independent signing certificate and cannot update an upstream E7E3-signed installation. Export data before migration. The upstream downloads and acceptance records below describe the original build.

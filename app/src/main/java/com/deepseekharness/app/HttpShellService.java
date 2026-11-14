@@ -940,7 +940,8 @@ public final class HttpShellService {
       }
       if (!forceAdb && !forceRoot && !sms && ShizukuShell.hasPermission()) {
         String output = ShizukuShell.exec(command);
-        if (output.contains("[POLICY_BLOCKED]"))
+        if (com.deepseekharness.app.util.DeviceCommandResult.exitCode(output) == 126
+            && output.contains("[POLICY_BLOCKED]"))
           com.deepseekharness.app.ui.RootShellDialogs.blocked(ctx);
         return completedExecution("shizuku", output);
       }

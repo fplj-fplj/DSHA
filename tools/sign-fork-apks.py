@@ -8,6 +8,7 @@ from pathlib import Path
 import re
 import subprocess
 import zipfile
+from build_flavors import CHOICES, selected_flavors
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -19,6 +20,7 @@ def run(*args):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--output', type=Path, required=True)
+    parser.add_argument('--flavor', choices=CHOICES, default='both')
     args = parser.parse_args()
     identity = json.loads((ROOT / 'ci/fork-release-identity.json').read_text())
     lock = json.loads((ROOT / 'ci/toolchain.lock.json').read_text())
@@ -27,9 +29,11 @@ def main():
     source = (ROOT / 'app/build.gradle').read_text()
     version = re.search(r'versionName "([^"]+)"', source)[1]
     code = re.search(r'versionCode (\d+)', source)[1]
+    if args.output.exists() and any(args.output.iterdir()):
+        raise ValueError('SIGNING_OUTPUT_MUST_BE_EMPTY')
     args.output.mkdir(parents=True, exist_ok=True)
     receipts = []
-    for flavor, minimum in [('standard', 30), ('low', 23)]:
+    for flavor, minimum in selected_flavors(args.flavor):
         unsigned = ROOT / f'app/build/outputs/apk/{flavor}/release/app-{flavor}-release-unsigned.apk'
         target = args.output / ('dsha-0.2.1-rc.2' + ('-low' if flavor == 'low' else '') + '.apk')
         run(tools / 'zipalign', '-P', '16', '-f', '4', unsigned, target)

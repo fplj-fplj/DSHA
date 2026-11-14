@@ -109,7 +109,8 @@ public final class RootShell {
       user = ctx.getApplicationInfo().uid / 100000;
     }
     String output = runPrivileged(ctx, command, user, "");
-    if (output.contains("[POLICY_BLOCKED]"))
+    if (com.deepseekharness.app.util.DeviceCommandResult.exitCode(output) == 126
+        && output.contains("[POLICY_BLOCKED]"))
       com.deepseekharness.app.ui.RootShellDialogs.blocked(ctx);
     return output;
   }

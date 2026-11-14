@@ -7,11 +7,71 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import patch
+import shutil
+import zipfile
+from build_flavors import selected_flavors, verification_tasks
 
 
 spec=importlib.util.spec_from_file_location('verify_stability',Path(__file__).with_name('verify-stability.py'))
 gate=importlib.util.module_from_spec(spec)
 spec.loader.exec_module(gate)
+
+sign_spec=importlib.util.spec_from_file_location('sign_fork',Path(__file__).with_name('sign-fork-apks.py'))
+sign=importlib.util.module_from_spec(sign_spec)
+sign_spec.loader.exec_module(sign)
+
+
+class StandardBuildTest(unittest.TestCase):
+    def test_standard_keeps_junit_lint_and_assembly_without_low(self):
+        self.assertEqual([('standard',30)],selected_flavors('standard'))
+        self.assertEqual([':app:testStandardDebugUnitTest', ':app:lintStandardRelease',
+                          ':app:assembleStandardRelease'], verification_tasks('standard', True))
+        self.assertEqual(6,len(verification_tasks('both',True)))
+        with self.assertRaises(ValueError):selected_flavors('typo')
+
+    def test_standard_signing_needs_no_low_apk_and_receipt_has_only_standard(self):
+        with tempfile.TemporaryDirectory(prefix='fork-signing-') as folder:
+            root=Path(folder)
+            (root/'ci').mkdir()
+            (root/'ci/fork-release-identity.json').write_text(json.dumps(dict(
+                packageName='dsh.android.client',certificateSha256='a'*64,alias='fixture',schemes=['v1','v2','v3'])))
+            (root/'ci/toolchain.lock.json').write_text(json.dumps(dict(buildTools='36.0.0')))
+            (root/'app').mkdir()
+            (root/'app/build.gradle').write_text('versionCode 190\nversionName "fixture"\n')
+            unsigned=root/'app/build/outputs/apk/standard/release/app-standard-release-unsigned.apk'
+            unsigned.parent.mkdir(parents=True)
+            assets=['adb-shell.py','device-shell-policy.py','runtime-descriptor.json',
+                    'builtin-plugins/dsh-device-shell-guide/lib/index.js']
+            with zipfile.ZipFile(unsigned,'w') as archive:
+                for name in assets:
+                    source=root/'app/src/main/assets'/name
+                    source.parent.mkdir(parents=True,exist_ok=True)
+                    source.write_bytes(b'fixture asset')
+                    archive.writestr('assets/'+name,source.read_bytes())
+            commands=[]
+            def run(*args):
+                commands.append([str(x) for x in args])
+                if Path(args[0]).name=='zipalign' and '-f' in args:
+                    shutil.copyfile(args[-2],args[-1])
+                if Path(args[0]).name=='apksigner' and args[1]=='verify':
+                    return 'Signer #1 certificate SHA-256 digest: '+'a'*64+'\n'+''.join(
+                        f'Verified using {scheme} scheme: true\n' for scheme in ['v1','v2','v3'])
+                if Path(args[0]).name=='aapt':
+                    return "package: name='dsh.android.client' versionCode='190' versionName='fixture'\nsdkVersion:'30'\nnative-code: 'arm64-v8a'"
+                return ''
+            output=root/'signed'
+            with patch.object(sign,'ROOT',root), patch.object(sign,'run',side_effect=run), \
+                 patch.dict('os.environ',dict(ANDROID_HOME=str(root/'sdk'),DSHA_FORK_KEYSTORE=str(root/'key'),GITHUB_SHA='fixture')), \
+                 patch('sys.argv',['sign-fork-apks.py','--flavor','standard','--output',str(output)]):
+                sign.main()
+                receipt=json.loads((output/'build-receipt.json').read_text())
+                self.assertEqual(['standard'],[item['flavor'] for item in receipt['apks']])
+                self.assertEqual('fixture',receipt['commit'])
+                self.assertEqual(['dsha-0.2.1-rc.2.apk'],[p.name for p in output.glob('*.apk')])
+                self.assertTrue(any('verify' in command for command in commands))
+                self.assertTrue(any('badging' in command for command in commands))
+                with self.assertRaisesRegex(ValueError,'SIGNING_OUTPUT_MUST_BE_EMPTY'):sign.main()
 
 
 class ReleaseEvidenceTest(unittest.TestCase):

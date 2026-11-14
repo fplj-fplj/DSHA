@@ -9,6 +9,6 @@
 
 这是 DSHA 受管入口的限制，不是 Root 管理器或内核沙箱。保留已披露的递归 READ 子链接覆盖缺口；自行运行的插件、shell 程序或其他应用不受这层检查约束。未将软件测试扩写成完整防绕过保证。
 
-构建由本仓库 GitHub Actions 执行：两版 JUnit、Release Lint、受管输入与原生依赖检查、实际 APK 资产检查，以及固定证书和 v1/v2/v3 签名检查。最终结果、源码 commit、两版摘要以 Release 的 `build-receipt.json` 和对应 Actions 为准。新增回归使用假命令执行器、假 ADB 连接和 Robolectric，不执行被测危险命令。本轮禁止设备操作，未执行设备上的 LayoutAuditInstrumentation、安装、启动或真机验收。
+构建优先使用本仓库 GitHub Actions 的 Standard 单版本模式，不在本机编译 APK。所选版本仍执行完整 JUnit、Release Lint、受管输入与原生依赖检查、实际 APK 资产检查，以及固定证书和 v1/v2/v3 签名检查；需要时可选择 both 或 low。最终结果、源码 commit、实际交付版本及摘要以 Release 的 `build-receipt.json` 和对应 Actions 为准，Standard 结果不代表 Low 已验证。新增回归使用假命令执行器、假 ADB 连接和 Robolectric，不执行被测危险命令。本轮禁止设备操作，未执行设备上的 LayoutAuditInstrumentation、安装、启动或真机验收。
 
 本机清理已删除上一轮下载的五份 APK，以及可再生成的 Chromium、测试运行时和应急资产副本；保留源码、工具链、锁定构建输入、签名材料、历史对话及验收记录。GitHub 上的旧 Release 不删除。

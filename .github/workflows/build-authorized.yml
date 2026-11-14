@@ -1,6 +1,16 @@
 name: Build user-authorized DSHA
 on:
   workflow_dispatch:
+    inputs:
+      flavor:
+        description: 优先构建 Standard；需要时可选择两版
+        required: true
+        default: standard
+        type: choice
+        options:
+          - standard
+          - both
+          - low
 permissions:
   contents: read
 concurrency:
@@ -12,6 +22,8 @@ jobs:
     timeout-minutes: 120
     permissions:
       contents: write
+    env:
+      BUILD_FLAVOR: ${{ inputs.flavor }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -61,8 +73,8 @@ jobs:
           export PLAYWRIGHT_BROWSERS_PATH="$RUNNER_TEMP/dsha-playwright-browsers"
           node "$DSHA_PLAYWRIGHT/cli.js" install --with-deps chromium
           printf 'DSHA_PLAYWRIGHT=%s\nPLAYWRIGHT_BROWSERS_PATH=%s\n' "$DSHA_PLAYWRIGHT" "$PLAYWRIGHT_BROWSERS_PATH" >> "$GITHUB_ENV"
-      - name: Both flavors, unit tests, release lint and complete unsigned APK checks
-        run: python3 tools/verify-stability.py --stage package --java-home "$JAVA_HOME" --sdk "$ANDROID_HOME"
+      - name: Selected flavor unit tests, release lint and complete unsigned APK checks
+        run: python3 tools/verify-stability.py --stage package --flavor "$BUILD_FLAVOR" --java-home "$JAVA_HOME" --sdk "$ANDROID_HOME"
       - name: Sign and verify APKs with fixed fork certificate
         env:
           KEY_BASE64: ${{ secrets.DSHA_FORK_KEYSTORE_BASE64 }}
@@ -72,11 +84,11 @@ jobs:
           export DSHA_FORK_KEYSTORE="$RUNNER_TEMP/dsha-fork.p12"
           trap 'rm -f -- "$DSHA_FORK_KEYSTORE"' EXIT
           printf '%s' "$KEY_BASE64" | base64 --decode > "$DSHA_FORK_KEYSTORE"
-          python3 tools/sign-fork-apks.py --output app/build/authorized-release
+          python3 tools/sign-fork-apks.py --flavor "$BUILD_FLAVOR" --output app/build/authorized-release
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always()
         with:
-          name: DSHA-authorized-build-and-reports
+          name: DSHA-${{ inputs.flavor }}-build-and-reports
           path: |
             app/build/authorized-release
             app/build/stability-acceptance
@@ -86,8 +98,8 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          tag="root-guard-20261114-${GITHUB_SHA:0:12}"
-          gh release create "$tag" app/build/authorized-release/* --target "$GITHUB_SHA" --title "DSHA Root 限制版 2026-11-14" --notes-file docs/releases/root-restrictions-20261114.md --latest
+          tag="root-guard-20261114-${BUILD_FLAVOR}-${GITHUB_SHA:0:12}"
+          gh release create "$tag" app/build/authorized-release/* --target "$GITHUB_SHA" --title "DSHA Root 限制版 2026-11-14 ($BUILD_FLAVOR)" --notes-file docs/releases/root-restrictions-20261114.md --latest
       - name: Check remaining storage
         if: always()
         run: |

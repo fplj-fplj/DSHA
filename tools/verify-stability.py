@@ -17,6 +17,7 @@ from test_runtime_fixture import runtime as verified_runtime
 from release_acceptance import requirements as acceptance_requirements, validate as validate_acceptance, baseline_from_receipt
 from release_names import apk_delivery_path, delivery_receipt_path, source_directory, release_staging_directory
 from release_layout import checked_path, source_snapshot_path
+from build_flavors import CHOICES, selected_flavors, verification_tasks
 
 ROOT=Path(__file__).resolve().parents[1]
 CERT=json.loads((ROOT/'ci/release-identity.json').read_text(encoding='utf-8'))['certificateSha256']
@@ -164,6 +165,7 @@ def deliver_from_receipt(path,evidence,baseline):
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--stage', choices=('software','package','all'), default='all', help='software不需要发布密钥；package生成未签名完整包；all核验正式签名包')
+    parser.add_argument('--flavor', choices=CHOICES, default='both', help='选择实际编译和核验的版本；默认维持两版门禁')
     parser.add_argument('--java-home',type=Path,default=Path(os.environ.get('JAVA_HOME','F:/DSHA/_toolchains/jdk-17')))
     parser.add_argument('--sdk',type=Path,default=Path(os.environ.get('ANDROID_HOME','F:/DSHA/_toolchains/android-sdk')))
     parser.add_argument('--node',default=shutil.which('node') or 'node')
@@ -174,6 +176,9 @@ def main():
     parser.add_argument('--baseline-receipt',type=Path,help='上一轮正式交付通过回执；核对其中源码摘要后按实际改动选择设备必验行为')
     parser.add_argument('--deliver-from',type=Path,help='在源码、检查日志和 APK 字节均未变化时复用本轮软件通过回执，补真机证据后交付')
     args=parser.parse_args()
+    if args.flavor != 'both' and args.stage == 'all':
+        parser.error('单版本选择只用于 software/package；历史签名设备交付仍要求两版完整证据')
+    flavors = selected_flavors(args.flavor)
     if args.stage!='all' and (args.deliver or args.deliver_from):
         parser.error('只有正式签名和设备证据完整的all阶段可以交付')
     if args.device:
@@ -196,7 +201,8 @@ def main():
         'dirty':bool(subprocess.check_output(['git','status','--porcelain'],cwd=ROOT)),
         'device':{'status':'EXTERNAL_EVIDENCE_REQUIRED','package':'dsh.android.client'},
         'notVerified':['Android 6/7 physical devices','minimum standard API 30 physical device','reported Android 16 tablet','physical 16 KiB kernel','power loss durability'],
-        'githubUploaded':False,'productionInstallationModified':False,'junitForksPerFlavor':args.test_forks}
+        'githubUploaded':False,'productionInstallationModified':False,'junitForksPerFlavor':args.test_forks,
+        'selectedFlavors':[name for name, _ in flavors]}
     initial_source=source_snapshot()
     baseline_sources,provenance=baseline_from_receipt(args.baseline_receipt) if args.baseline_receipt else (None,None)
     acceptance=acceptance_requirements(baseline_sources,initial_source,provenance=provenance) if baseline_sources else None
@@ -229,12 +235,11 @@ def main():
                         f"t.maxParallelForks = {args.test_forks}\n"
                         f"t.reports.junitXml.outputLocation.set(new File('{escaped}/junit',t.name))\n"
                         "} } }\n",encoding='utf8')
-        tasks=[':app:testStandardDebugUnitTest',':app:testLowDebugUnitTest',':app:lintStandardRelease',':app:lintLowRelease']
-        if signed or args.stage=='package':tasks+=[':app:assembleStandardRelease',':app:assembleLowRelease']
+        tasks=verification_tasks(args.flavor, signed or args.stage=='package')
         if args.stage=='package':wrapper+=['-Pdsha.unsignedPackage=true']
         run('gradle-verification',wrapper+['--init-script',init,*tasks])
         report['junit']={}
-        for variant in ('Standard','Low'):
+        for variant in (name.title() for name, _ in flavors):
             counts=dict(tests=0,failures=0,errors=0,skipped=0);xmls=list((report_dir/'junit'/('test'+variant+'DebugUnitTest')).glob('*.xml'))
             if not xmls:raise RuntimeError('Missing fresh JUnit reports for '+variant)
             for xml in xmls:
@@ -288,7 +293,7 @@ def main():
             target=report_dir/'manifest.json';target.write_text(json.dumps(report,ensure_ascii=False,indent=2)+'\n',encoding='utf8')
             print(json.dumps({'status':report['status'],'report':str(target)},ensure_ascii=False));return 0
         if not signed and args.stage!='package':raise RuntimeError('Software checks completed, but historical DSHA_KEYSTORE is unavailable. No substitute key or signed APK was generated')
-        apks=[ROOT/f'app/build/outputs/apk/{v}/release/app-{v}-release{"" if signed else "-unsigned"}.apk' for v in ('standard','low')]
+        apks=[ROOT/f'app/build/outputs/apk/{v}/release/app-{v}-release{"" if signed else "-unsigned"}.apk' for v, _ in flavors]
         # Always compare the APK against the currently locked raw runtime fixture.
         try:
             locked_runtime=verified_runtime('raw',full=True,require_current_archive=True)
@@ -298,7 +303,7 @@ def main():
         run('third-party-apk',[sys.executable,'-B','tools/verify-third-party-apk.py',*apks,
                               '--output',report_dir/'third-party-apk.json'])
         build_tools=args.sdk/'build-tools/36.0.0';report['apks']=[]
-        for flavor,apk,minimum in zip(('standard','low'),apks,(30,23)):
+        for (flavor,minimum),apk in zip(flavors,apks):
             run(flavor+'-elf',[sys.executable,'-B','tools/audit-standard-apk.py',apk,'--report',report_dir/(flavor+'-elf.json')])
             if signed:
                 signature=run(flavor+'-signature',[java,'-jar',build_tools/'lib/apksigner.jar','verify','--min-sdk-version','23','--verbose','--print-certs',apk])

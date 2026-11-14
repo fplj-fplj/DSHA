@@ -93,7 +93,7 @@ public final class FullPermissionControlsTest {
       assertEquals(0, writes.get());
       assertEquals(0, changes.get());
       var status = field(controls, "status", TextView.class).getText().toString();
-      assertTrue(status.contains("不再询问"));
+      assertRootExplanation(status);
       assertFalse(status.contains("revision"));
       assertFalse(status.contains("NONE"));
     }
@@ -101,7 +101,7 @@ public final class FullPermissionControlsTest {
   }
 
   @Test
-  public void oldOffPreferenceCannotRestoreSafetyRestrictions() throws Exception {
+  public void oldOffPreferenceDoesNotChangeOrdinaryCapabilityPolicy() throws Exception {
     String off = new NativeConsentPolicy(false, 18).encode();
     preferences.edit().putString(KEY, off).commit();
     var changes = new AtomicInteger();
@@ -112,7 +112,7 @@ public final class FullPermissionControlsTest {
       assertFalse(toggle.isEnabled());
       assertEquals(off, preferences.getString(KEY, null));
       assertEquals(0, changes.get());
-      assertTrue(field(controls, "status", TextView.class).getText().toString().contains("不再询问"));
+      assertRootExplanation(field(controls, "status", TextView.class).getText().toString());
     }
   }
 
@@ -120,8 +120,14 @@ public final class FullPermissionControlsTest {
   public void unconfiguredSettingSkipsSafetyConfirmationsWithoutCreatingARecord() throws Exception {
     try (var controls = controls(new AtomicInteger())) {
       assertTrue(field(controls, "global", MaterialSwitch.class).isChecked());
-      assertTrue(field(controls, "status", TextView.class).getText().toString().contains("不再询问"));
+      assertRootExplanation(field(controls, "status", TextView.class).getText().toString());
       assertFalse(preferences.contains(KEY));
     }
+  }
+
+  private static void assertRootExplanation(String text) {
+    assertTrue(text.contains("保留 Root 命令限制"));
+    assertTrue(text.contains("不能通过全局免确认跳过检查"));
+    assertTrue(text.contains("普通通道和文件接口沿用用户授权设置"));
   }
 }

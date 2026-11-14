@@ -26,7 +26,7 @@ public final class RootShellDialogsTest {
       assertTrue(dialog.isShowing());
       assertEquals(0, enabled.get());
       dialog.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
-      org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle();
+      org.robolectric.shadows.ShadowLooper.idleMainLooper();
       assertEquals(1, enabled.get());
     }
   }
@@ -40,11 +40,11 @@ public final class RootShellDialogsTest {
       AtomicInteger enabled = new AtomicInteger();
       var dialog = RootShellDialogs.explain(activity, enabled::incrementAndGet);
       dialog.getButton(DialogInterface.BUTTON_NEGATIVE).performClick();
-      org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle();
+      org.robolectric.shadows.ShadowLooper.idleMainLooper();
       assertEquals(0, enabled.get());
       dialog = RootShellDialogs.explain(activity, enabled::incrementAndGet);
       dialog.cancel();
-      org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle();
+      org.robolectric.shadows.ShadowLooper.idleMainLooper();
       assertEquals(0, enabled.get());
     }
   }
